@@ -1128,8 +1128,9 @@ export function apply(ctx, config = {}) {
     }
 
     return JSON.stringify({
-      ok: results.some((r) => r.ok),
+      ok: results.length === cleaned.length && results.every((r) => r.ok),
       sentCount: sent.length,
+      remainingCount: cleaned.length - sent.length,
       results,
       quota: { remaining: quota.remaining, limit: quota.dailyLimit },
     }, null, 2)
