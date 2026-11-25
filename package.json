@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechatbot",
-  "version": "0.3.0-preview.2",
+  "version": "0.3.0-preview.3",
   "private": true,
   "description": "A vision-based WeChat bot for macOS that supports group and private chats.",
   "type": "module",
