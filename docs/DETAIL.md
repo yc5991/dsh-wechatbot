@@ -11,9 +11,8 @@ WeChat.
 - Grant **Accessibility** and **Screen Recording** to the process running DSH, in
   System Settings, Privacy & Security. Without them window reading returns
   permission errors, select-drag does nothing and OCR returns no lines.
-- Keep the target chat open in its own window (or as the foreground chat of the
-  main window). A detached chat window is preferred: its title is the exact group
-  name, which also makes target verification cheap.
+- Prepare each target in a detached WeChat window. The overview marks a target
+  ready when its window is on the left of the main display.
 - Xcode command line tools for `swiftc`. Without them the OCR and drag helpers are
   interpreted with `swift`, which is slower but still works.
 
@@ -21,23 +20,23 @@ WeChat.
 
 | Tool | Purpose |
 |---|---|
-| `wechat_read` | Group chats try select-copy with OCR fallback. Private chats use OCR. Choose `mode="ocr"` for a background read or `mode="copy"` for exact group copy. |
+| `wechat_read` | Checks which messages from the current bot session are still visible. Group chats try select-copy with OCR fallback. Private chats use OCR. |
 | `wechat_send` | Sanitize, verify the target group, then paste and send |
 | `wechat_send_many` | Several bubbles with human pauses |
-| `wechat_stickers` | List image files in the sticker folder |
+| `wechat_stickers` | Search labeled native favorites or submit one by its ID |
 | `wechat_send_image` | Send an image by name or path |
 
 Manage detection, settings, and sessions in the plugin detail panel.
 
 ## Vision and stickers
 
-- When `attachScreenshot` is enabled, a reply turn can include a downscaled
-  image of the chat pane. The panel preview starts only when requested. Its live
+- When `attachScreenshot` is enabled and OCR locates the first message of a
+  reply turn, the turn can include a downscaled image starting at that message.
+  The panel preview starts only when requested. Its live
   mode pauses when the overview closes or the page goes into the background.
-- `wechat_stickers` lists images in the sticker folder
-  (`~/.dsh/dsh-wechatbot/stickers` by default) and `wechat_send_image` sends one
-  by name or absolute path. The file goes onto the clipboard as picture data; the
-  input box is verified to have changed before Return is pressed.
+- Scan and label native favorites in the settings panel. Each submission opens
+  the favorites picker and locates the original tile before clicking it. The
+  local `wechat_send_image` tool accepts a filename or path for regular images.
 
 ## Configuration
 
@@ -45,16 +44,16 @@ Set these in the plugin's config row or from the plugin page panel.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `expectedGroup` | `''` | Exact chat name to work in (group or private contact). Sends are refused while unset. |
-| `chatMode` | `group` | `group` answers mentions/topics only; `private` answers every message |
-| `whitelistGroups` | `[]` | Additional acceptable group names |
+| `targets` | legacy single target | Up to ten exact chat names, each with a group or private mode |
 | `atKeywords` | `["@豆包","豆包"]` | Tokens that count as an @-mention |
 | `agentPreset` | `wechatbot` | Preset for bot sessions (no file, terminal or subagent tools) |
-| `scan.intervalMinutes` | `5` | Fallback screen scan interval |
+| `trigger.onNotification` | `true` | Listen for incoming system notifications |
+| `dragCopyEnabled` | `true` | Allow group transcript selection and copy |
+| `ocrEnabled` / `scan.intervalMinutes` | `true` / `5` | Read OCR text and optionally scan on an interval |
 | `reuseWindowMinutes` | `3` | Messages within this quiet period share one session |
 | `archiveAfterMinutes` | `5` | Silence after which the window is summarized and archived |
-| `dailyProactiveLimit` | `1000` | Daily cap on replies that are not @-mentions. 0 means unlimited. |
-| `maxEmojiPerMessage` | `1` | Emoji cap per message |
+| `includeSessionMemory` | `false` | Let the model see summaries from earlier sessions |
+| `dailyProactiveLimit` | `1000` | Daily cap shared by all sends and chats. 0 means unlimited. |
 | `replyDelayMinSeconds` / `replyDelayMaxSeconds` | `0.8` / `2.4` | Random pause before sending |
 
 ## Prompt composition
@@ -70,15 +69,15 @@ Set these in the plugin's config row or from the plugin page panel.
 
 ## Target-group guard
 
-`wechat_send` re-reads the window title immediately before sending and refuses
-when the detected group is not `expectedGroup`. Pinning the group chat keeps the
-window on that chat and makes the guard cheap to satisfy. A send still verifies
-each time, because another chat can be opened while the model is thinking.
+The DSH session binds each tool invocation to one chat. The plugin serializes
+WeChat actions and rechecks the foreground window before the final submit. Each
+bubble in a batch is checked independently.
 
 ## Deliberate limits
 
 - Select-copy reads only the visible region; older history needs scrolling first.
 - Images and cards are read as whatever text OCR finds, not as content.
 - The bot types through the user's own WeChat account.
-- A session archived outside the plugin is detected and replaced on the next
-  wake; prompts admitted to an archived session are dropped by DSH.
+- The next wake starts a new session if the old one was archived or detached.
+  Permanent deletion of a local JSONL session is staged from the panel, executed
+  after exiting DSH with an exclusive session lock, and verified on reopening.

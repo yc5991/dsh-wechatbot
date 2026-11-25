@@ -33,10 +33,12 @@ window.__ModuleLoader__.load({
       [data-dsh-wechatbot] {
         --wb-fg: var(--dsw-alias-label-primary, #24272d);
         --wb-muted: var(--dsw-alias-label-secondary, #646b78);
-        --wb-border: var(--dsw-alias-border-l2, #dce0e7);
-        --wb-surface: var(--dsw-alias-bg-layer-1, #fff);
+        --wb-border: var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l2, #dce0e7));
+        --wb-surface: var(--dsw-alias-settings-card-fill, var(--dsw-alias-bg-layer-1, #fff));
         --wb-bg: var(--dsw-alias-bg-base, #f6f7fa);
-        --wb-brand: #3158ce;
+        --wb-brand: var(--dsw-alias-brand-primary, #3158ce);
+        --wb-control: var(--dsw-alias-bg-layer-1, #fff);
+        --wb-hover: var(--dsw-alias-interactive-bg-hover, #f6f7fa);
         --wb-danger: var(--dsw-alias-state-error-primary, #b43038);
         color: var(--wb-fg);
         font-size: 14px;
@@ -57,18 +59,42 @@ window.__ModuleLoader__.load({
       .dshwb-heading { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
       .dshwb-status { border: 1px solid var(--wb-border); border-radius: 999px; font-size: 12px; padding: 2px 9px; }
       .dshwb-status::before { content: ""; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; display: inline-block; vertical-align: 2px; background: var(--wb-muted); }
-      .dshwb-status[data-running="true"]::before { background: #258450; }
+      .dshwb-status[data-running="true"]::before, .dshwb-status[data-connection="true"]::before, .dshwb-status[data-ready="true"]::before { background: #258450; }
+      .dshwb-status[data-connection="false"]::before { background: var(--wb-danger); }
+      .dshwb-status[data-connection="true"] { color: var(--dsw-alias-state-success-primary, #237447); }
+      .dshwb-status[data-connection="false"] { color: var(--wb-danger); }
       .dshwb-nav { display: flex; flex-wrap: wrap; gap: 18px; border-bottom: 1px solid var(--wb-border); margin-bottom: 16px; }
       .dshwb-nav button { appearance: none; border: 0; border-bottom: 2px solid transparent; border-radius: 4px 4px 0 0; padding: 8px 2px; background: transparent; color: var(--wb-muted); font: inherit; cursor: pointer; }
       .dshwb-nav button[aria-pressed="true"] { color: var(--wb-fg); border-bottom-color: var(--wb-brand); font-weight: 650; }
-      .dshwb-btn { min-height: 34px; padding: 5px 12px; color: var(--wb-fg); border: 1px solid var(--wb-border); border-radius: 7px; background: var(--wb-surface); font: inherit; font-size: 13px; cursor: pointer; }
-      .dshwb-btn:hover:not(:disabled) { background: var(--wb-bg); }
-      .dshwb-btn[data-tone="primary"] { background: var(--wb-brand); border-color: var(--wb-brand); color: #fff; }
-      .dshwb-btn[data-tone="primary"]:hover:not(:disabled) { background: #2649b5; }
+      .dshwb-btn { min-height: 34px; padding: 5px 12px; color: var(--wb-fg); border: 1px solid var(--wb-border); border-radius: 8px; background: var(--wb-control); font: inherit; font-size: 13px; cursor: pointer; }
+      .dshwb-btn:hover:not(:disabled) { background: var(--wb-hover); }
+      .dshwb-btn[data-tone="primary"] { background: var(--dsw-alias-button-primary-fill, var(--wb-brand)); border-color: transparent; color: var(--dsw-alias-label-primary-foreground, #fff); }
+      .dshwb-btn[data-tone="primary"]:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover, var(--wb-brand)); }
       .dshwb-btn[data-tone="danger"] { color: var(--wb-danger); }
       .dshwb-btn:disabled { opacity: .55; cursor: default; }
       [data-dsh-wechatbot] :focus-visible { outline: 2px solid var(--wb-brand); outline-offset: 2px; }
-      .dshwb-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+      .dshwb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+      .dshwb-chat-config { grid-column: 1 / -1; }
+      .dshwb-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+      .dshwb-metrics > div { padding: 8px; border-radius: 8px; background: var(--wb-bg); }
+      .dshwb-metrics dt { color: var(--wb-muted); font-size: 12px; }
+      .dshwb-metrics dd { margin: 0; font-size: 20px; font-weight: 650; }
+      .dshwb-send-item, .dshwb-setting-block { border-top: 1px solid var(--wb-border); padding-top: 10px; overflow-wrap: anywhere; }
+      .dshwb-send-item img { width: 54px; border-radius: 6px; }
+      .dshwb-send-item time { color: var(--wb-muted); font-size: 12px; }
+      .dshwb-card .dshwb-send-item .dshwb-toolbar { margin-bottom: 3px; }
+      .dshwb-card h4 { margin: 0; font-size: 13px; }
+      .dshwb-setting-block, .dshwb-target-name { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+      .dshwb-setting-block { align-items: flex-start; flex-direction: column; }
+      .dshwb-candidate-list { max-height: 190px; overflow: auto; }
+      .dshwb-settings-layout { display: grid; align-items: start; grid-template-columns: minmax(105px, 145px) minmax(0, 1fr); gap: 16px; }
+      .dshwb-settings-nav { display: grid; gap: 6px; }
+      .dshwb-settings-nav button { text-align: left; }
+      .dshwb-btn[aria-pressed="true"] { border-color: var(--wb-brand); }
+      .dshwb-sticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(205px, 100%), 1fr)); gap: 12px; }
+      .dshwb-sticker-cell { min-width: 0; padding: 10px; border: 1px solid var(--wb-border); border-radius: 8px; }
+      .dshwb-sticker-cell img { display: block; max-width: 100%; width: 80px; border-radius: 6px; margin-bottom: 6px; }
+      .dshwb-sticker-cell input, .dshwb-sticker-cell textarea, .dshwb-target-candidates input:not([type="checkbox"]) { max-width: 100%; }
       .dshwb-stack { display: grid; gap: 14px; min-width: 0; }
       .dshwb-card { background: var(--wb-surface); border: 1px solid var(--wb-border); border-radius: 12px; padding: 16px; min-width: 0; }
       .dshwb-card h3 + p { margin-top: 4px; }
@@ -87,17 +113,29 @@ window.__ModuleLoader__.load({
       .dshwb-field { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
       .dshwb-field-wide { grid-column: 1 / -1; }
       .dshwb-field label { font-weight: 575; }
-      .dshwb-field input:not([type="checkbox"]), .dshwb-field textarea, .dshwb-field select {
-        background: var(--wb-bg); border: 1px solid var(--wb-border); color: var(--wb-fg); border-radius: 7px; padding: 6px 9px; min-height: 34px; width: 100%; font: inherit;
+      [data-dsh-wechatbot] :is(input:not([type="checkbox"], [type="file"]), textarea, select) {
+        background: var(--wb-control); border: 1px solid var(--wb-border); border-radius: 8px;
+        color: var(--wb-fg); padding: 5px 10px; min-height: 34px; max-width: 100%; font: inherit; font-size: 13px;
       }
-      .dshwb-field textarea { resize: vertical; }
+      .dshwb-field input:not([type="checkbox"], [type="file"]), .dshwb-field textarea, .dshwb-field select { width: 100%; }
+      [data-dsh-wechatbot] textarea { resize: vertical; }
+      .dshwb-workspace-link { background: none; color: var(--wb-brand); border: 0; padding: 0; text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; text-align: left; overflow-wrap: anywhere; width: fit-content; max-width: 100%; }
+      .dshwb-workspace-link:disabled { opacity: .55; cursor: default; }
+      .dshwb-document { border-top: 1px solid var(--wb-border); padding-top: 10px; }
+      .dshwb-document-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; color: var(--wb-fg); background: var(--wb-bg); border: 1px solid var(--wb-border); border-radius: 8px; padding: 12px; margin: 8px 0 0; font-size: 13px; }
+      .dshwb-document .dshwb-list-row { border: 0; padding: 0; }
       .dshwb-field input[type="checkbox"] { accent-color: var(--wb-brand); width: 16px; height: 16px; margin: 0; }
       .dshwb-switch { display: flex; align-items: center; gap: 8px; min-height: 28px; }
-      .dshwb-settings fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+      .dshwb-settings fieldset { margin: 0; min-width: 0; }
+      .dshwb-settings .dshwb-delay { border: 0; padding: 0; }
       .dshwb-settings fieldset:disabled { opacity: .72; }
       .dshwb-settings summary { cursor: pointer; font-weight: 650; }
       .dshwb-save { position: sticky; bottom: 0; z-index: 1; background: var(--wb-surface); border-top: 1px solid var(--wb-border); padding: 10px 0 2px; }
-      @media (max-width: 720px) { .dshwb-grid, .dshwb-fields { grid-template-columns: minmax(0, 1fr); } }
+      @media (max-width: 720px) {
+        .dshwb-grid, .dshwb-fields, .dshwb-settings-layout { grid-template-columns: minmax(0, 1fr); }
+        .dshwb-settings-nav { display: flex; flex-wrap: wrap; }
+        .dshwb-delay .dshwb-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
     `
 
     const cls = (name) => P + name.split(' ').join(' ' + P)
@@ -105,11 +143,11 @@ window.__ModuleLoader__.load({
     const hint = (text) => h('p', { className: cls('muted') }, text)
     const actions = (...children) => h('div', { className: cls('actions') }, ...children)
     const button = (text, onClick, opts = {}) => h('button', {
-      type: opts.type || 'button', className: cls('btn'), onClick, disabled: opts.disabled,
+      key: opts.key, type: opts.type || 'button', className: cls('btn'), onClick, disabled: opts.disabled,
       'data-tone': opts.tone, 'aria-pressed': opts.pressed,
     }, text)
 
-    function Preview({ attached }) {
+    function Preview({ connected, targetId }) {
       const [shot, setShot] = useState(null)
       const [live, setLive] = useState(false)
       const [loading, setLoading] = useState(false)
@@ -118,17 +156,17 @@ window.__ModuleLoader__.load({
       const url = useRef(null)
 
       const capture = async () => {
-        if (controller.current || document.hidden) return false
+        if (controller.current || document.hidden || connected !== true) return false
         const active = new AbortController()
         controller.current = active
         setLoading(true)
         setError('')
         try {
-          const image = await request('/screenshot', { body: {}, signal: active.signal })
+          const image = await request('/screenshot', { body: { targetId }, signal: active.signal })
           if (active.signal.aborted) return false
           if (url.current) URL.revokeObjectURL(url.current)
           url.current = URL.createObjectURL(image)
-          setShot({ src: url.current, at: new Date() })
+          setShot(url.current)
           return true
         } catch (failure) {
           if (!active.signal.aborted) setError(failure.message)
@@ -143,22 +181,20 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         const hide = () => {
-          if (document.hidden) {
-            setLive(false)
-            controller.current?.abort()
-          }
+          if (!document.hidden) return
+          setLive(false)
+          controller.current?.abort()
         }
         document.addEventListener('visibilitychange', hide)
         return () => {
           document.removeEventListener('visibilitychange', hide)
           controller.current?.abort()
-          controller.current = null
           if (url.current) URL.revokeObjectURL(url.current)
         }
       }, [])
 
       useEffect(() => {
-        if (!live) return
+        if (!live || connected !== true) return
         let active = true
         let timer
         const refresh = async () => {
@@ -173,100 +209,62 @@ window.__ModuleLoader__.load({
           window.clearTimeout(timer)
           controller.current?.abort()
         }
-      }, [live])
+      }, [live, connected])
 
+      const connection = connected === null ? t('状态未知', 'Status unknown')
+        : connected ? t('已连接', 'Connected') : t('未连接', 'Disconnected')
       return h('section', { className: cls('card') },
-        title(t('微信窗口预览', 'WeChat window preview')),
-        hint(t('在面板查看当前窗口。实时预览开启后约每 5 秒更新，离开页面即暂停。',
-          'View the current window here. Live preview refreshes about every 5 seconds and stops when you leave.')),
+        h('div', { className: cls('toolbar') }, title(t('微信窗口预览', 'WeChat window preview')),
+          h('span', { className: cls('status'), 'data-connection': String(connected) }, connection)),
         h('div', { className: cls('frame'), 'aria-busy': loading },
-          shot
-            ? h('img', { src: shot.src, alt: t('微信聊天窗口截图', 'Screenshot of the WeChat chat window') })
-            : hint(loading ? t('正在截取窗口…', 'Capturing the window…') : t('预览尚未开启', 'Preview is off'))),
-        h('div', { className: cls('toolbar') },
-          actions(
-            button(t('截取一张', 'Capture once'), capture, { disabled: live || loading }),
-            button(live ? t('暂停实时预览', 'Pause live preview') : t('开启实时预览', 'Start live preview'),
-              () => setLive(!live), { disabled: loading && !live, pressed: live, tone: live ? undefined : 'primary' })),
-          shot && h('span', { className: cls('muted'), role: 'status' }, shot.at.toLocaleTimeString())),
-        error && h('p', { className: cls('error'), role: 'alert' }, error),
-        hint(attached
-          ? t('模型截图已启用，只在提交回复轮时附上。', 'Model screenshots are enabled and are attached when a reply turn is submitted.')
-          : t('模型截图已关闭，面板预览仍可单独使用。', 'Model screenshots are off. The panel preview is available separately.')))
+          shot ? h('img', { src: shot, alt: t('微信聊天窗口截图', 'WeChat chat window') })
+            : hint(loading ? t('正在截取…', 'Capturing…') : t('暂无预览', 'No preview'))),
+        actions(
+          button(t('截取一张', 'Capture once'), capture, { disabled: !connected || live || loading }),
+          button(live ? t('暂停实时预览', 'Pause live preview') : t('开启实时预览', 'Start live preview'),
+            () => setLive(!live), { disabled: !connected || (loading && !live), pressed: live, tone: 'primary' })),
+        error && h('p', { className: cls('error'), role: 'alert' }, error))
     }
 
     const field = (key, label, type = 'text', options = {}) => ({ key, label, type, ...options })
-    const fieldGroups = [
-      {
-        label: t('目标聊天', 'Target chat'),
-        fields: [
-          field('expectedGroup', t('聊天名称', 'Chat name'), 'target', { help: t('输入微信窗口显示的完整名称。', 'Enter the full title shown in WeChat.') }),
-          field('chatMode', t('聊天模式', 'Chat mode'), 'choice', { options: { group: t('群聊', 'Group'), private: t('私聊', 'Private') } }),
-        ],
-      },
-      {
-        label: t('检测与读屏', 'Detection and vision'),
-        fields: [
-          field('trigger.onNotification', t('收到系统通知时检测', 'Watch system notifications'), 'boolean'),
-          field('scan.enabled', t('定时读屏巡检', 'Scan the chat on an interval'), 'boolean', { help: t('通过 OCR 识别窗口中的消息，微信可留在后台。', 'Uses OCR to read the chat while WeChat stays in the background.') }),
-          field('scan.intervalMinutes', t('巡检间隔（分钟）', 'Scan interval (minutes)'), 'number', { min: 1, max: 120 }),
-          field('attachScreenshot', t('给模型附上聊天截图', 'Attach chat screenshots to model turns'), 'boolean', { help: t('仅在发起模型回复时生效，与面板实时预览独立。', 'Applies to reply turns and is independent of panel preview.') }),
-          field('screenshotMaxWidth', t('模型截图最大宽度（像素）', 'Max model screenshot width (pixels)'), 'number', { min: 320, max: 1600 }),
-        ],
-      },
-      {
-        label: t('回复行为', 'Reply behavior'),
-        collapsed: true,
-        fields: [
-          field('atKeywords', t('召唤关键词', 'Mention keywords'), 'list'),
-          field('proactiveReplyProbability', t('群聊主动接话概率（%）', 'Proactive group reply chance (%)'), 'percent', { min: 0, max: 100 }),
-          field('replyCooldownSeconds', t('群聊回复冷却（秒）', 'Group reply cooldown (seconds)'), 'number', { min: 0, max: 600 }),
-          field('dailyProactiveLimit', t('每日主动发言上限', 'Daily proactive reply limit'), 'number', { min: 0, max: 10000, help: t('0 表示不限。被 @ 的回复不计入。', '0 means unlimited. Mentions are exempt.') }),
-          field('maxMessageChars', t('单条消息字数上限', 'Max characters per message'), 'number', { min: 20, max: 2000 }),
-          field('maxMessagesPerCall', t('一次最多连续发送几条', 'Max bubbles per send'), 'number', { min: 1, max: 20 }),
-          field('maxEmojiPerMessage', t('单条微信表情上限', 'Max WeChat emojis per message'), 'number', { min: 0, max: 5 }),
-          field('replyDelayMinSeconds', t('最短发送延迟（秒）', 'Min send delay (seconds)'), 'number', { min: 0, max: 10, step: 0.1 }),
-          field('replyDelayMaxSeconds', t('最长发送延迟（秒）', 'Max send delay (seconds)'), 'number', { min: 0, max: 30, step: 0.1 }),
-          field('knownVeterans', t('熟人名单', 'Known participants'), 'list'),
-          field('jargonKeywords', t('技术话题关键词', 'Technical topic keywords'), 'list'),
-        ],
-      },
-      {
-        label: t('会话与记忆', 'Sessions and memory'),
-        collapsed: true,
-        fields: [
-          field('reuseWindowMinutes', t('会话复用窗口（分钟）', 'Session reuse window (minutes)'), 'number', { min: 1, max: 60 }),
-          field('archiveAfterMinutes', t('静默归档时间（分钟）', 'Archive after inactivity (minutes)'), 'number', { min: 1, max: 120 }),
-          field('memoryMaxEntries', t('记忆保留条数', 'Memory entries retained'), 'number', { min: 5, max: 500 }),
-          field('memoryPromptEntries', t('每轮带入的记忆条数', 'Memory entries per prompt'), 'number', { min: 0, max: 20 }),
-          field('maxPromptChars', t('每轮文本上限（字符）', 'Prompt text limit (characters)'), 'number', { min: 2000, max: 100000 }),
-          field('agentPreset', t('DSH 会话预设', 'DSH session preset')),
-          field('workspaceTitle', t('DSH 工作区名称', 'DSH workspace name')),
-          field('agentDir', t('人设与记忆目录', 'Persona and memory directory'), 'text', { help: t('留空使用插件默认目录。', 'Leave empty to use the plugin default.') }),
-        ],
-      },
-      {
-        label: t('高级设置', 'Advanced settings'),
-        description: t('拖选坐标使用屏幕绝对坐标，四项均为 0 时自动定位。', 'Drag points use absolute screen coordinates. Set all four to 0 for automatic positioning.'),
-        collapsed: true,
-        fields: [
-          field('stickerDir', t('表情包目录', 'Sticker directory'), 'text', { help: t('留空使用插件默认目录。', 'Leave empty to use the plugin default.') }),
-          field('whitelistGroups', t('额外识别的聊天名', 'Additional recognized chat names'), 'list'),
-          field('dragPoints.x1', t('拖选起点 X', 'Drag start X'), 'number'),
-          field('dragPoints.y1', t('拖选起点 Y', 'Drag start Y'), 'number'),
-          field('dragPoints.x2', t('拖选终点 X', 'Drag end X'), 'number'),
-          field('dragPoints.y2', t('拖选终点 Y', 'Drag end Y'), 'number'),
-        ],
-      },
+    const groups = [
+      { id: 'sources', label: t('消息来源', 'Message sources'), fields: [
+        field('trigger.onNotification', t('监测系统通知', 'Watch system notifications'), 'boolean'),
+        field('dragCopyEnabled', t('拖拽复制微信信息', 'Read by drag-copy'), 'boolean'),
+        ...[['x1', '起点 X'], ['y1', '起点 Y'], ['x2', '终点 X'], ['y2', '终点 Y']]
+          .map(([key, label]) => field('dragPoints.' + key, t(label, key.toUpperCase()), 'number')),
+        field('ocrEnabled', t('OCR 读屏', 'Read the screen with OCR'), 'boolean'),
+        field('scan.enabled', t('启用定时巡检', 'Enable scheduled scans'), 'boolean'),
+        field('scan.intervalMinutes', t('巡检间隔（分钟）', 'Scan interval (minutes)'), 'number', { min: 1, max: 120 }),
+        field('attachScreenshot', t('使用模型视觉识别', 'Use model vision'), 'boolean'),
+        field('screenshotMaxWidth', t('截图最大宽度（px）', 'Max screenshot width (px)'), 'number', { min: 320, max: 1600 }),
+      ] },
+      { id: 'reply', label: t('回复规则', 'Reply rules'), fields: [
+        field('atKeywords', t('召唤关键词', 'Mention keywords'), 'list'),
+        field('proactiveReplyProbability', t('群聊主动接话概率（%）', 'Proactive group reply chance (%)'), 'percent', { min: 0, max: 100 }),
+        field('replyCooldownSeconds', t('群聊回复冷却（秒）', 'Group reply cooldown (seconds)'), 'number', { min: 0, max: 600 }),
+        field('dailyProactiveLimit', t('每日发言上限', 'Daily send limit'), 'number', { min: 0, max: 10000, help: t('所有聊天的发送共用额度，0 表示不限。', 'Shared by all chats. 0 means unlimited.') }),
+        field('maxMessageChars', t('单条消息字数上限', 'Max characters per message'), 'number', { min: 20, max: 2000 }),
+        field('maxMessagesPerCall', t('连发信息次数上限', 'Max messages per batch'), 'number', { min: 1, max: 20 }),
+        field('replyDelayMinSeconds', t('最小值', 'Minimum'), 'number', { min: 0, max: 10, step: 0.1 }),
+        field('replyDelayMaxSeconds', t('最大值', 'Maximum'), 'number', { min: 0, max: 30, step: 0.1 }),
+      ] },
+      { id: 'persona', label: t('人格配置', 'Persona files'), fields: [] },
+      { id: 'stickers', label: t('表情管理', 'Stickers'), fields: [] },
+      { id: 'advanced', label: t('高级设置', 'Advanced'), fields: [
+        field('reuseWindowMinutes', t('会话复用窗口（分钟）', 'Session reuse window (minutes)'), 'number', { min: 1, max: 60 }),
+        field('archiveAfterMinutes', t('静默归档时间（分钟）', 'Archive after inactivity (minutes)'), 'number', { min: 1, max: 120 }),
+        field('memoryMaxEntries', t('摘要保留条数', 'Summary entries retained'), 'number', { min: 5, max: 500 }),
+        field('includeSessionMemory', t('跨会话记忆', 'Cross-session memory'), 'boolean'),
+        field('memoryPromptEntries', t('注入记忆条数', 'Memory entries per prompt'), 'number', { min: 0, max: 20 }),
+        field('workspaceTitle', t('工作区名', 'Workspace name')),
+      ] },
     ]
 
-    function settingsValue(settings, key) {
-      return key.split('.').reduce((value, part) => value?.[part], settings)
-    }
-
+    const settingsValue = (settings, key) => key.split('.').reduce((value, part) => value?.[part], settings)
     function displayValue(value, type) {
       if (type === 'list') return (value || []).join('\n')
-      if (type === 'percent') return value === undefined ? '' : Number((value * 100).toFixed(4))
+      if (type === 'percent') return Number(((value ?? 0) * 100).toFixed(4))
       return value ?? ''
     }
 
@@ -277,232 +275,387 @@ window.__ModuleLoader__.load({
       return typeof value === 'string' ? value.trim() : value
     }
 
-    function Settings({ status, onSave, busy, drafts, setDrafts }) {
-      const [targets, setTargets] = useState(null)
-      const [targetError, setTargetError] = useState('')
-      const [finding, setFinding] = useState(false)
-      const settings = status.settings || {}
-      const draftValue = ({ key, type }) => drafts[key] ?? displayValue(settingsValue(settings, key), type)
-      const update = (key, value) => setDrafts((previous) => ({ ...previous, [key]: value }))
-      const changed = fieldGroups.flatMap((group) => group.fields)
-        .filter(({ key, type }) => Object.hasOwn(drafts, key)
-          && JSON.stringify(parseValue(drafts[key], type)) !== JSON.stringify(settingsValue(settings, key)))
+    function PersonaFile({ fileKey, name, available, draft, onReplace, canReplace, busy }) {
+      const input = useRef(null)
+      const pending = useRef(null)
+      const [preview, setPreview] = useState(null)
+      const [loading, setLoading] = useState(false)
+      const [error, setError] = useState('')
+      useEffect(() => () => pending.current?.abort(), [])
+      useEffect(() => { setPreview(null) }, [draft])
 
+      async function showPreview() {
+        if (preview !== null) return setPreview(null)
+        const requestController = new AbortController()
+        pending.current = requestController
+        setLoading(true)
+        setError('')
+        try {
+          const file = await request('/documents/' + fileKey, { signal: requestController.signal })
+          if (!requestController.signal.aborted) setPreview(file.text)
+        } catch (failure) {
+          if (!requestController.signal.aborted) setError(failure.message)
+        } finally {
+          if (!requestController.signal.aborted) setLoading(false)
+        }
+      }
+
+      return h('div', { className: cls('document') },
+        h('div', { className: cls('list-row') },
+          h('div', null, h('strong', null, name),
+            draft ? hint(t('待替换 · ', 'Pending replacement · ') + draft.name)
+              : !available && hint(t('文件未创建', 'File has not been created'))),
+          actions(button(loading ? t('正在打开…', 'Opening…') : preview === null ? t('预览', 'Preview') : t('收起预览', 'Close preview'),
+            showPreview, { disabled: loading || !available, pressed: preview !== null }),
+          button(t('替换', 'Replace'), () => input.current?.click(), { disabled: !canReplace || busy }))),
+        h('input', { ref: input, type: 'file', hidden: true, accept: '.md,.markdown', onChange: async (event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (!file) return
+          try {
+            if (!/\.(md|markdown)$/i.test(file.name) || file.size > 512 * 1024) throw new Error(t('请选择 512 KB 以内的 Markdown 文件。', 'Choose a Markdown file up to 512 KB.'))
+            const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
+            onReplace({ name: file.name, text })
+            setError('')
+          } catch (failure) { setError(failure.message) }
+        } }),
+        error && h('p', { className: cls('error'), role: 'alert' }, error),
+        preview !== null && h('pre', { className: cls('document-preview'), tabIndex: 0, 'aria-label': name },
+          preview || t('文件为空', 'This file is empty')))
+    }
+
+    function Settings({ status, onSave, run, busy, drafts, setDrafts, selectedTarget, section, setSection }) {
+      const [fileError, setFileError] = useState('')
+      const group = groups.find((item) => item.id === section) ?? groups[0]
+      const value = ({ key, type }) => drafts[key] ?? displayValue(settingsValue(status.settings, key), type)
+      const update = (key, next) => setDrafts((prev) => ({ ...prev, [key]: next }))
+      const changed = groups.flatMap((item) => item.fields).filter(({ key, type }) => Object.hasOwn(drafts, key)
+        && JSON.stringify(parseValue(drafts[key], type)) !== JSON.stringify(settingsValue(status.settings, key)))
+      const files = Object.entries(drafts).filter(([key]) => key.startsWith('documents.'))
+      const hasChanges = Boolean(changed.length || files.length)
       const submit = (event) => {
         event.preventDefault()
-        if (!changed.length || busy || !status.canEdit) return
+        if (!hasChanges || busy || !status.canEdit) return
         const patch = {}
-        for (const { key, type } of changed) {
+        for (const { key, type, min, max } of changed) {
+          const next = parseValue(drafts[key], type)
+          if (['number', 'percent'].includes(type) && (drafts[key] === '' || !Number.isFinite(next)
+            || (min != null && Number(drafts[key]) < min) || (max != null && Number(drafts[key]) > max))) {
+            setFileError(t('请检查设置值及其允许范围。', 'Check the setting values and their permitted ranges.'))
+            return
+          }
           const [root, child] = key.split('.')
-          const value = parseValue(drafts[key], type)
-          if (child) patch[root] = { ...patch[root], [child]: value }
-          else patch[root] = value
+          if (child) patch[root] = { ...patch[root], [child]: next }
+          else patch[root] = next
         }
+        if (files.length) patch.documents = Object.fromEntries(files.map(([key, file]) => [key.split('.')[1], file.text]))
+        setFileError('')
         onSave(patch)
       }
 
-      const findTargets = async () => {
-        setFinding(true)
-        setTargetError('')
-        try {
-          const result = await request('/targets')
-          setTargets(result.candidates)
-        } catch (failure) {
-          setTargetError(failure.message)
-        } finally { setFinding(false) }
-      }
-
-      const renderField = (item) => {
+      function renderField(item, disabled = false) {
         const { key, label, type, help } = item
         const id = P + key.replace('.', '-')
-        const props = {
-          id, name: key, 'aria-describedby': help || type === 'list' ? id + '-hint' : undefined,
-          value: draftValue(item), onChange: (event) => update(key, event.target.value),
-        }
-        if (type === 'boolean') {
-          return h('div', { key, className: cls('field') },
-            h('label', { className: cls('switch') },
-              h('input', {
-                id, name: key, type: 'checkbox', checked: Boolean(draftValue(item)),
-                'aria-describedby': props['aria-describedby'],
-                onChange: (event) => update(key, event.target.checked),
-              }), label),
-            help && h('span', { id: id + '-hint', className: cls('muted') }, help))
-        }
+        const props = { id, name: key, disabled, 'aria-describedby': help ? id + '-hint' : undefined,
+          onChange: (event) => update(key, type === 'boolean' ? event.target.checked : event.target.value) }
+        if (type === 'boolean') return h('div', { key, className: cls('field') },
+          h('label', { className: cls('switch') }, h('input', { ...props, checked: Boolean(value(item)), type: 'checkbox' }), label))
         const numeric = type === 'number' || type === 'percent'
-        let control
-        if (type === 'list') control = h('textarea', { ...props, rows: 3 })
-        else if (type === 'choice') {
-          control = h('select', props, Object.entries(item.options).map(([value, name]) => h('option', { key: value, value }, name)))
-        } else {
-          control = h('input', { ...props, type: numeric ? 'number' : 'text', required: numeric,
-            min: item.min, max: item.max, step: item.step ?? (type === 'percent' ? 'any' : 1) })
-        }
-        return h('div', { key, className: cls('field') },
-          h('label', { htmlFor: id }, label),
-          control,
-          (help || type === 'list') && h('span', { id: id + '-hint', className: cls('muted') }, help || t('每行一项。', 'One item per line.')),
-          type === 'target' && actions(
-            button(finding ? t('查找中…', 'Finding…') : t('查找微信聊天', 'Find WeChat chats'), findTargets, { disabled: finding }),
-            targets?.length > 0 && h('select', {
-              'aria-label': t('选择候选聊天', 'Choose a detected chat'),
-              value: targets.some((row) => row.name === draftValue(item)) ? draftValue(item) : '',
-              onChange: (event) => update(key, event.target.value),
-            },
-            h('option', { value: '', disabled: true }, t('选择候选聊天', 'Choose a detected chat')),
-            ...targets.map((row) => h('option', { key: row.name, value: row.name }, row.name))),
-            targets?.length === 0 && hint(t('没有找到候选聊天，可以手动输入。', 'No chats found. You can enter a name manually.'))),
-          type === 'target' && targetError && h('p', { className: cls('error'), role: 'alert' }, targetError))
+        return h('div', { key, className: cls('field') }, h('label', { htmlFor: id }, label),
+          type === 'list' ? h('textarea', { ...props, value: value(item), rows: 3 })
+            : h('input', { ...props, value: value(item), type: numeric ? 'number' : 'text',
+              min: item.min, max: item.max, step: item.step ?? (type === 'percent' ? 'any' : 1) }),
+          help && h('span', { id: id + '-hint', className: cls('muted') }, help))
       }
 
-      return h('form', { className: cls('settings stack'), onSubmit: submit },
-        !status.canEdit && hint(t('当前插件配置无法编辑。', 'The plugin settings are read-only here.')),
-        h('fieldset', { className: cls('stack'), disabled: busy || !status.canEdit },
-          ...fieldGroups.map((group) => {
-            const content = h('div', { className: cls('fields') }, ...group.fields.map(renderField))
-            if (group.collapsed) {
-              return h('details', { key: group.label, className: cls('card'), open: group.fields.some((item) => Object.hasOwn(drafts, item.key)) || undefined },
-                h('summary', null, group.label), group.description && hint(group.description), content)
-            }
-            return h('section', { key: group.label, className: cls('card') }, title(group.label), content)
-          })),
-        h('div', { className: cls('toolbar save') },
-          hint(changed.length > 0 ? t('有未保存的更改', 'Unsaved changes') : t('所有设置已保存', 'Settings are up to date')),
+      const sourceFields = group.id === 'sources' && h('div', { className: cls('stack') },
+        renderField(group.fields[0]),
+        h('div', { className: cls('setting-block') }, renderField(group.fields[1]),
+          h('details', null, h('summary', null, t('手动拖选坐标', 'Manual drag coordinates')),
+            hint(t('四项填 0 时自动定位，坐标以屏幕为基准。', 'Four zeros enable automatic placement. Coordinates are screen-relative.')),
+            h('div', { className: cls('fields') }, ...group.fields.slice(2, 6).map((item) => renderField(item, !value(group.fields[1])))))),
+        h('div', { className: cls('setting-block') }, renderField(group.fields[6]),
+          renderField(group.fields[7], !value(group.fields[6])),
+          renderField(group.fields[8], !value(group.fields[6]) || !value(group.fields[7]))),
+        h('div', { className: cls('setting-block') }, renderField(group.fields[9]), renderField(group.fields[10], !value(group.fields[9]))))
+
+      const personaFields = group.id === 'persona' && h('div', { className: cls('stack') },
+        h('button', { type: 'button', className: cls('workspace-link'), disabled: busy,
+          onClick: () => run('/workspace/open', {}), title: t('在 Finder 打开工作目录', 'Open the working directory in Finder') }, status.agentDir),
+        ...[['agent', 'AGENT.md'], ['persona', 'PERSONA.md'], ['memory', 'MEMORY.md']].map(([key, name]) =>
+          h(PersonaFile, { key, fileKey: key, name, available: status.documents?.[key],
+            draft: drafts['documents.' + key], canReplace: status.canEdit, busy,
+            onReplace: (file) => update('documents.' + key, file) })))
+
+      return h('form', { className: cls('settings stack'), onSubmit: submit, noValidate: true },
+        h('div', { className: cls('toolbar save') }, title(t('机器人设置', 'Bot settings')),
           actions(
-            button(t('还原', 'Discard changes'), () => setDrafts({}), { disabled: !Object.keys(drafts).length || busy }),
-            button(busy ? t('保存中…', 'Saving…') : t('保存设置', 'Save settings'), undefined,
-              { type: 'submit', tone: 'primary', disabled: !changed.length || busy || !status.canEdit }))))
+            button(t('默认值', 'Defaults'), () => setDrafts((prev) => ({ ...prev,
+              ...Object.fromEntries(group.fields.map(({ key, type }) => [key, displayValue(settingsValue(status.defaults, key), type)])) })),
+            { disabled: !group.fields.length || busy || !status.canEdit }),
+            button(t('取消', 'Cancel'), () => { setDrafts({}); setFileError('') }, { disabled: !Object.keys(drafts).length || busy }),
+            button(t('保存', 'Save'), undefined, { type: 'submit', tone: 'primary', disabled: !hasChanges || busy || !status.canEdit }))),
+        fileError && h('p', { role: 'alert', className: cls('error') }, fileError),
+        h('div', { className: cls('settings-layout') },
+          h('nav', { className: cls('settings-nav'), 'aria-label': t('设置分类', 'Settings categories') },
+            ...groups.map((item) => button(item.label, () => setSection(item.id), { key: item.id, pressed: item.id === group.id }))),
+          h('div', { className: cls('stack') },
+            group.id !== 'stickers' && h('fieldset', { className: cls('card'), disabled: group.id !== 'persona' && (busy || !status.canEdit) },
+              title(group.label), sourceFields || personaFields ||
+                h('div', { className: cls('fields') },
+                  ...group.fields.filter((item) => !item.key.startsWith('replyDelay')).map((item) => renderField(item)),
+                  group.id === 'reply' && h('fieldset', { className: cls('field-wide delay') },
+                    h('legend', null, t('发送信息延时（秒）', 'Send delay (seconds)')),
+                    h('div', { className: cls('fields') }, ...group.fields.slice(-2).map((item) => renderField(item)))))),
+            group.id === 'stickers' && h(Stickers, { status, run, busy, selectedTarget }))))
     }
 
-    function Stickers({ target, run }) {
-      const [list, setList] = useState(null)
+    function Stickers({ status, run, busy, selectedTarget }) {
+      const [data, setData] = useState(null)
       const [error, setError] = useState('')
-      const [loading, setLoading] = useState(false)
-      const [chosen, setChosen] = useState('')
-      const load = async () => {
-        setLoading(true)
-        setError('')
-        try { setList(await request('/stickers')) }
-        catch (failure) { setError(failure.message) }
-        finally { setLoading(false) }
+      const [edit, setEdit] = useState(null)
+      const [confirm, setConfirm] = useState(null)
+      const [target, setTarget] = useState(selectedTarget ?? '')
+      const [query, setQuery] = useState('')
+      const [tag, setTag] = useState('')
+      const [view, setView] = useState('available')
+      useEffect(() => {
+        const active = new AbortController()
+        let timer
+        const load = async () => {
+          try {
+            const next = await request('/stickers', { signal: active.signal })
+            if (active.signal.aborted) return
+            setData(next)
+            if (next.job?.state === 'running') timer = window.setTimeout(load, 1500)
+          } catch (failure) { if (!active.signal.aborted) setError(failure.message) }
+        }
+        load()
+        return () => { active.abort(); window.clearTimeout(timer) }
+      }, [data?.job?.state])
+
+      const runSticker = async (path, body, message) => {
+        const result = await run(path, body, message)
+        if (result?.stickers) setData(result)
+        return result
       }
-      return h('section', { className: cls('card') },
-        h('div', { className: cls('toolbar') }, title(t('表情包', 'Stickers')),
-          button(list ? t('刷新目录', 'Refresh folder') : t('查看目录', 'Browse folder'), load, { disabled: loading })),
-        error && h('p', { className: cls('error'), role: 'alert' }, error),
-        list && hint(list.dir),
-        list?.stickers.length === 0 && hint(t('将图片放入这个目录后即可选择。', 'Add images to this folder to use them here.')),
-        list && h('div', { className: cls('list') }, ...list.stickers.map((sticker) =>
-          h('div', { key: sticker.file, className: cls('list-row') },
-            h('span', null, sticker.file),
-            chosen === sticker.file ? actions(
-              button(t('取消', 'Cancel'), () => setChosen(''), { disabled: loading }),
-              button(t('确认发到「' + target + '」', 'Send to ' + target), async () => {
-                setLoading(true)
-                const sent = await run('/stickers/send', { file: sticker.file }, t('图片已发送', 'Image sent'))
-                setLoading(false)
-                if (sent) setChosen('')
-              }, { tone: 'primary', disabled: loading }))
-              : button(t('发送…', 'Send…'), () => setChosen(sticker.file), { disabled: !target || loading })))))
+      const job = data?.job
+      const items = data?.stickers ?? []
+      const unlabeled = items.some((row) => row.available && !row.source)
+      const normalize = (value) => String(value ?? '').normalize('NFKC').trim().toLocaleLowerCase()
+      const tags = new Map()
+      for (const row of items) {
+        if (view !== 'all' && !row.available) continue
+        for (const label of row.tags) if (!tags.has(normalize(label))) tags.set(normalize(label), label)
+      }
+      const visible = items.filter((row) => (view === 'all' || row.available)
+        && (view !== 'unlabeled' || !row.source)
+        && (!tag || row.tags.some((label) => normalize(label) === tag))
+        && (!query.trim() || [...row.tags, row.description].some((value) => normalize(value).includes(normalize(query)))))
+      const close = () => setConfirm(null)
+      return h('section', { className: cls('card stack') },
+        h('div', { className: cls('toolbar') }, title(t('微信收藏表情', 'WeChat favorites')),
+          actions(
+            h('select', { 'aria-label': t('操作聊天', 'Chat for sticker operations'), value: target, onChange: (event) => { setTarget(event.target.value); close() } },
+              h('option', { value: '' }, t('选择聊天', 'Choose a chat')),
+              ...status.targets.map((chat) => h('option', { key: chat.id, value: chat.id }, chat.name))),
+            button(t('获取全部收藏表情', 'Get all favorites'), () => runSticker('/stickers/sync', { targetId: target }, t('收藏已更新', 'Favorites updated')),
+              { disabled: busy || !target || !status.connected }),
+            button(t('自动标注', 'Auto-label'), () => runSticker('/stickers/auto-label', {}, t('正在使用 DSH 标注', 'Labeling with DSH')),
+              { disabled: busy || !unlabeled || job?.state === 'running' }))),
+        error && h('p', { role: 'alert', className: cls('error') }, error),
+        job?.state === 'running' && h('p', { role: 'status' }, t('标注进度 ', 'Labeling ') + job.processed + ' / ' + job.total),
+        job?.state === 'done' && hint(t('已更新标注 ', 'Updated labels ') + job.updated),
+        job?.state === 'error' && h('p', { role: 'alert', className: cls('error') }, job.error),
+        data?.needsRescan ? hint(t('旧表情库已迁移。请重新获取收藏确认可用表情，原有标注可在「全部表情」查看。', 'The old library has migrated. Scan favorites again to confirm availability. Previous labels are under All stickers.'))
+          : data?.scannedAt && !data.complete && hint(t('本次只获取到部分收藏，可以再次同步。', 'Only part of the library was scanned.')),
+        items.length > 0 && h('div', { className: cls('toolbar') },
+          actions(
+            h('input', { type: 'search', value: query, 'aria-label': t('搜索收藏表情', 'Search favorite stickers'),
+              placeholder: t('搜索标签或使用场景', 'Search labels or uses'), onChange: (event) => setQuery(event.target.value) }),
+            h('select', { value: view, 'aria-label': t('按状态筛选表情', 'Filter stickers by status'), onChange: (event) => {
+              setView(event.target.value); setTag(''); close()
+            } },
+            h('option', { value: 'available' }, t('可用表情', 'Available')),
+            h('option', { value: 'unlabeled' }, t('待标注', 'Unlabeled')),
+            h('option', { value: 'all' }, t('全部表情', 'All stickers'))),
+            h('select', { value: tag, 'aria-label': t('按标签筛选表情', 'Filter stickers by tag'), onChange: (event) => setTag(event.target.value) },
+              h('option', { value: '' }, t('全部标签', 'All labels')),
+              ...[...tags.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([key, label]) => h('option', { key, value: key }, label)))),
+          h('span', { className: cls('muted'), role: 'status' }, t('显示 ', 'Showing ') + visible.length + ' / ' + items.length)),
+        data && !items.length && hint(t('暂无收藏表情', 'No favorite stickers')),
+        items.length > 0 && !visible.length && hint(t('没有符合筛选条件的表情', 'No stickers match these filters')),
+        h('div', { className: cls('sticker-grid') }, ...visible.map((row) =>
+          h('article', { className: cls('sticker-cell'), key: row.id },
+            h('img', { src: row.thumbnail, alt: row.tags.join('、') || t('收藏表情', 'Favorite sticker'), loading: 'lazy' }),
+            edit?.id === row.id ? h('div', { className: cls('stack') },
+              h('label', { className: cls('field') }, t('表情标签', 'Tags'),
+                h('input', { value: edit.tags, onChange: (event) => setEdit({ ...edit, tags: event.target.value }) })),
+              h('label', { className: cls('field') }, t('使用场景', 'When to use'),
+                h('textarea', { value: edit.description, rows: 2, onChange: (event) => setEdit({ ...edit, description: event.target.value }) })),
+              actions(button(t('取消', 'Cancel'), () => setEdit(null), { disabled: busy }),
+                button(t('保存标注', 'Save label'), async () => {
+                  if (await runSticker('/stickers/labels', edit, t('标注已保存', 'Label saved'))) setEdit(null)
+                }, { disabled: busy, tone: 'primary' })))
+              : h('div', { className: cls('stack') },
+                h('strong', null, row.tags.join(' · ') || t('待标注', 'Unlabeled')),
+                row.description && h('p', null, row.description),
+                !row.available && hint(t('本次收藏中未找到', 'Unavailable in favorites')),
+                confirm?.id === row.id ? h('div', { className: cls('stack') },
+                  hint(confirm.action === 'remove' ? t('删除插件里的表情和标注。微信收藏仍会保留。', 'Remove the local sticker and label. It stays in WeChat favorites.')
+                    : t('发送到所选聊天', 'Send to the selected chat')),
+                  actions(button(t('取消', 'Cancel'), close, { disabled: busy }),
+                    button(confirm.action === 'remove' ? t('确认删除', 'Confirm deletion') : t('确认发送', 'Confirm send'), async () => {
+                      const result = confirm.action === 'remove'
+                        ? await runSticker('/stickers/remove', { id: row.id }, t('表情已删除', 'Sticker removed'))
+                        : await run('/stickers/send', { id: row.id, targetId: target }, t('表情已提交给微信', 'Sticker submitted to WeChat'))
+                      if (result) { close(); if (confirm.action === 'remove') setTag('') }
+                    }, { tone: 'danger', disabled: busy || (confirm.action === 'send' && (!target || !status.connected)) })))
+                  : actions(
+                    button(t('编辑标注', 'Edit label'), () => { close(); setEdit({ id: row.id, tags: row.tags.join('，'), description: row.description }) }, { disabled: busy }),
+                    button(t('发送…', 'Send…'), () => setConfirm({ id: row.id, action: 'send' }), { disabled: busy || !target || !row.available || !status.connected }),
+                    button(t('删除…', 'Delete…'), () => setConfirm({ id: row.id, action: 'remove' }), { disabled: busy, tone: 'danger' })))))))
     }
 
-    function Activity({ run, status }) {
-      const [sessions, setSessions] = useState(null)
-      const [diagnostics, setDiagnostics] = useState(null)
+    function Activity({ run, busy }) {
+      const [data, setData] = useState(null)
+      const [error, setError] = useState('')
       const [pending, setPending] = useState(null)
-      const [busy, setBusy] = useState(false)
-      const [error, setError] = useState('')
-      const load = async (path, update) => {
-        setBusy(true)
-        setError('')
-        try { update(await request(path)) }
-        catch (failure) { setError(failure.message) }
-        finally { setBusy(false) }
+      const [filter, setFilter] = useState('')
+      const load = async (signal) => {
+        try { setData(await request('/sessions', { signal })); setError('') }
+        catch (failure) { if (!signal?.aborted) setError(failure.message) }
       }
-      useEffect(() => { load('/sessions', setSessions) }, [])
-
-      const sessionAction = async (action, sessionId) => {
-        setBusy(true)
-        const done = await run('/sessions', { action, sessionId }, t('会话已更新', 'Session updated'))
+      useEffect(() => {
+        const active = new AbortController()
+        load(active.signal)
+        return () => active.abort()
+      }, [])
+      const change = async (action, sessionId) => {
+        const result = await run('/sessions', { action, sessionId }, action === 'delete'
+          ? t('已安排退出后删除', 'Scheduled for deletion after exit') : t('会话状态已更新', 'Session updated'))
+        if (!result) return
         setPending(null)
-        if (done) await load('/sessions', setSessions)
-        setBusy(false)
+        await load()
       }
-      const injection = diagnostics?.injection
-      const lastRead = diagnostics ? diagnostics.lastRead : status.lastRead
-      const readReasons = {
-        baseline: t('启动时记录可见消息', 'Startup baseline'),
-        scan: t('定时巡检', 'Scheduled scan'),
-        'manual-scan': t('手动巡检', 'Manual scan'),
-        notification: t('补齐通知正文', 'Complete notification text'),
-        tool: t('模型调用读屏工具', 'Model requested a chat read'),
-      }
-      const readSources = {
-        copy: t('拖拽复制', 'Drag-copy'),
-        ocr: 'OCR',
-        'private-ocr': t('私聊 OCR', 'Private-chat OCR'),
-        unavailable: t('读取失败', 'Read failed'),
-      }
-      return h('div', { className: cls('stack') },
-        error && h('div', { className: cls('banner error'), role: 'alert' }, error),
-        h('section', { className: cls('card') },
-          h('div', { className: cls('toolbar') }, title(t('机器人会话', 'Bot sessions')),
-            button(t('刷新列表', 'Refresh list'), () => load('/sessions', setSessions), { disabled: busy })),
-          sessions?.sessions.length === 0 && hint(t('暂无机器人会话。', 'No bot sessions yet.')),
-          sessions && h('div', { className: cls('list') }, ...sessions.sessions.map((row) =>
-            h('div', { key: row.sessionId, className: cls('list-row') },
-              h('div', null, row.createdAt ? new Date(row.createdAt).toLocaleString() : row.sessionId,
-                hint(row.archived ? t('已归档', 'Archived') : t('未归档', 'Active'))),
-              pending === row.sessionId ? actions(
-                button(t('取消', 'Cancel'), () => setPending(null), { disabled: busy }),
-                button(t('永久删除', 'Delete permanently'), () => sessionAction('remove', row.sessionId), { disabled: busy, tone: 'danger' }))
-                : actions(
-                  button(row.archived ? t('恢复', 'Restore') : t('归档', 'Archive'),
-                    () => sessionAction(row.archived ? 'restore' : 'archive', row.sessionId), { disabled: busy }),
-                  button(t('删除…', 'Delete…'), () => setPending(row.sessionId), { disabled: busy, tone: 'danger' })))))),
-        h('section', { className: cls('card') },
-          h('div', { className: cls('toolbar') }, title(t('诊断', 'Diagnostics')),
-            button(t('读取诊断', 'Load diagnostics'), () => load('/diagnostics', setDiagnostics), { disabled: busy })),
-          hint(t('记忆条目', 'Memory entries') + ' · ' + (status.memory ?? '—')),
-          h('dl', { className: cls('detail') },
-            h('dt', null, t('最近一次读屏', 'Last chat read')),
-            h('dd', null, lastRead
-              ? [readReasons[lastRead.reason], readSources[lastRead.source], new Date(lastRead.at).toLocaleTimeString()].filter(Boolean).join(' · ')
-              : t('暂无记录', 'No reads yet')),
-            lastRead?.issue && h('dt', null, t('读取详情', 'Read details')),
-            lastRead?.issue && h('dd', null, lastRead.issue)),
-          (status.lastError || status.trigger?.lastError) && h('p', { className: cls('error') }, status.lastError || status.trigger.lastError),
-          injection && h('dl', { className: cls('detail') },
-            h('dt', null, t('首轮文本', 'First-turn text')), h('dd', null, injection.first.length + ' / ' + injection.first.limit),
-            h('dt', null, t('后续文本', 'Follow-up text')), h('dd', null, injection.joined.length + ' / ' + injection.joined.limit),
-            h('dt', null, t('队列消息', 'Queued messages')), h('dd', null, diagnostics.inbox.count))))
+      const names = [...new Set(data?.sessions.map((row) => row.targetName).filter(Boolean))]
+      const rows = (data?.sessions ?? []).filter((row) => !filter || (row.targetName || 'unassigned') === filter)
+      const stages = { preparing: t('准备失败', 'Preparation failed'), waiting: t('待退出后删除', 'Pending application exit'),
+        purged: t('已清理，待核对', 'Purged, awaiting verification'), verified: t('已彻底删除', 'Permanently deleted') }
+      return h('section', { className: cls('card stack') },
+        h('div', { className: cls('toolbar') }, title(t('会话记录管理', 'Session records')),
+          actions(
+            h('select', { 'aria-label': t('按聊天筛选', 'Filter by chat'), value: filter, onChange: (event) => setFilter(event.target.value) },
+              h('option', { value: '' }, t('全部聊天', 'All chats')),
+              ...names.map((name) => h('option', { key: name, value: name }, name)),
+              h('option', { value: 'unassigned' }, t('未关联聊天', 'Unassigned chat'))),
+            button(t('刷新', 'Refresh'), () => load(), { disabled: busy }))),
+        error && h('p', { role: 'alert', className: cls('error') }, error),
+        data && !rows.length && hint(t('暂无会话记录', 'No session records')),
+        h('div', { className: cls('list') }, ...rows.map((row) => h('div', { key: row.sessionId, className: cls('list-row') },
+          h('div', null, h('strong', null, row.targetName || t('未关联聊天', 'Unassigned chat')),
+            hint((row.createdAt ? new Date(row.createdAt).toLocaleString() : row.sessionId) + ' · ' +
+              (row.archived ? t('已归档', 'Archived') : t('未归档', 'Active')))),
+          pending === row.sessionId ? actions(hint(t('退出 DSH 后将永久删除这段会话。', 'This session will be permanently deleted after DSH exits.')),
+            button(t('取消', 'Cancel'), () => setPending(null), { disabled: busy }),
+            button(t('确认删除', 'Confirm deletion'), () => change('delete', row.sessionId), { tone: 'danger', disabled: busy }))
+            : actions(button(row.archived ? t('恢复', 'Restore') : t('归档', 'Archive'),
+              () => change(row.archived ? 'restore' : 'archive', row.sessionId), { disabled: busy }),
+            button(t('彻底删除…', 'Delete permanently…'), () => setPending(row.sessionId), { disabled: busy || !data?.canDelete, tone: 'danger' }))))),
+        ...(data?.deletions ?? []).map((row) => h('div', { key: row.id, className: cls('list-row') },
+          h('span', null, row.targetName || row.id), h('span', { role: 'status' }, stages[row.stage] ?? row.stage),
+          row.error && h('span', { className: cls('error') }, row.error))))
     }
 
-    function Overview({ status, busy, run, showSettings }) {
-      const settings = status.settings
-      const target = settings.expectedGroup
-      const windowTitle = status.window?.title || (status.window ? t('微信窗口已找到', 'WeChat window found') : t('未找到窗口', 'No window found'))
-      const values = [
-        [t('已配置的聊天', 'Configured chat'), target || t('待设置', 'Not configured')],
-        [t('聊天模式', 'Chat mode'), settings.chatMode === 'private' ? t('私聊', 'Private') : t('群聊', 'Group')],
-        [t('当前微信窗口', 'Current WeChat window'), windowTitle],
-        [t('DSH 会话通道', 'DSH session connection'), status.trigger?.available ? t('已就绪', 'Ready') : t('不可用', 'Unavailable')],
-        [t('待处理消息', 'Pending messages'), status.detector?.queued ?? status.pending],
-      ]
+    function Targets({ status, selected, select, run, busy }) {
+      const [draft, setDraft] = useState(null)
+      const [name, setName] = useState('')
+      const [mode, setMode] = useState('group')
+      const [results, setResults] = useState(null)
+      const [matches, setMatches] = useState([])
+      const [finding, setFinding] = useState(false)
+      const [error, setError] = useState('')
+      const rows = draft ?? status.targets
+      const edit = (index, patch) => setDraft(rows.map((row, position) => position === index ? { ...row, ...patch } : row))
+      const add = (names) => {
+        const next = [...rows, ...names.map((name) => ({ name, mode }))]
+        if (next.length > 10) return setError(t('最多配置 10 个聊天。', 'Configure up to 10 chats.'))
+        setDraft(next)
+        setName('')
+        setMatches([])
+        setError('')
+      }
+      const find = async () => {
+        setFinding(true)
+        setError('')
+        try { setResults((await request('/targets')).candidates) }
+        catch (failure) { setError(failure.message) }
+        finally { setFinding(false) }
+      }
+      const modeSelect = (value, onChange) => h('select', { 'aria-label': t('聊天模式', 'Chat mode'), value,
+        onChange: (event) => onChange(event.target.value) },
+      h('option', { value: 'group' }, t('群聊', 'Group')), h('option', { value: 'private' }, t('私聊', 'Private')))
+      return h('section', { className: cls('card chat-config stack') },
+        h('div', { className: cls('toolbar') }, title(t('聊天配置', 'Chat targets')), hint(rows.length + ' / 10')),
+        !rows.length && hint(t('尚未配置聊天', 'No chats configured')),
+        h('div', { className: cls('list') }, ...rows.map((row, index) => {
+          const live = status.targets.find((item) => item.id === row.id)
+          return h('div', { className: cls('list-row'), key: row.id ?? index },
+            row.editing ? actions(
+              h('input', { 'aria-label': t('聊天名称', 'Chat name'), value: row.name, onChange: (event) => edit(index, { name: event.target.value }) }),
+              modeSelect(row.mode, (value) => edit(index, { mode: value })))
+              : h('div', { className: cls('target-name') },
+                button(row.name + '【' + (row.mode === 'private' ? t('私聊', 'Private') : t('群聊', 'Group')) + '】', () => select(row.id),
+                  { disabled: !live, pressed: selected === row.id }),
+                h('span', { className: cls('status'), 'data-ready': String(Boolean(live?.ready)) }, live?.ready ? t('就绪', 'Ready') : t('未就绪', 'Not ready'))),
+            hint(t('待处理 ', 'Pending ') + (live?.pending ?? 0)),
+            actions(button(t('准备窗口', 'Prepare window'), () => run('/window', { targetId: row.id }, t('窗口已就绪', 'Window ready')),
+              { disabled: !live || !status.connected || busy }),
+            button(t('编辑', 'Edit'), () => edit(index, { editing: !row.editing }), { disabled: busy || !status.canEdit }),
+            button(t('移除', 'Remove'), () => setDraft(rows.filter((_, i) => i !== index)), { disabled: busy || !status.canEdit })))
+        })),
+        h('div', { className: cls('toolbar') }, actions(
+          h('input', { 'aria-label': t('添加聊天', 'Add a chat'), placeholder: t('输入完整聊天名', 'Enter the full chat name'), value: name,
+            onChange: (event) => setName(event.target.value) }),
+          modeSelect(mode, setMode),
+          button(t('添加', 'Add'), () => add([name.trim()]), { disabled: !name.trim() || rows.length >= 10 || busy || !status.canEdit }),
+          button(finding ? t('查找中…', 'Searching…') : t('查找微信聊天', 'Find WeChat chats'), find, { disabled: finding || busy || rows.length >= 10 || !status.canEdit })),
+        draft && actions(button(t('取消', 'Cancel'), () => { setDraft(null); setError('') }, { disabled: busy }),
+          button(t('保存聊天', 'Save chats'), async () => {
+            const result = await run('/settings', { targets: rows.map(({ name, mode }) => ({ name, mode })) }, t('聊天配置已保存', 'Chat targets saved'))
+            if (result) setDraft(null)
+          }, { tone: 'primary', disabled: busy || !status.canEdit }))),
+        results && h('div', { className: cls('target-candidates stack') },
+          h('input', { 'aria-label': t('筛选候选聊天', 'Filter chats'), placeholder: t('搜索候选聊天', 'Search matches'), value: name,
+            onChange: (event) => setName(event.target.value) }),
+          h('div', { className: cls('candidate-list') }, ...results.filter((row) => row.name.includes(name)
+            && !rows.some((saved) => saved.name === row.name)).map((row) => h('label', { key: row.name, className: cls('switch') },
+            h('input', { type: 'checkbox', checked: matches.includes(row.name), onChange: (event) =>
+              setMatches(event.target.checked ? [...matches, row.name] : matches.filter((value) => value !== row.name)) }), row.name))),
+          actions(button(t('添加选中聊天', 'Add selected chats'), () => add(matches), { disabled: !matches.length || busy || !status.canEdit }),
+            button(t('关闭', 'Close'), () => { setResults(null); setMatches([]) }))),
+        error && h('p', { className: cls('error'), role: 'alert' }, error))
+    }
+
+    function Overview({ status, busy, run, selected, select }) {
+      const target = status.targets.find((item) => item.id === selected)
+        ?? status.targets.find((item) => item.ready) ?? status.targets[0]
+      const totals = [[t('今日收到', 'Received today'), status.totals.received],
+        [t('发送提交', 'Submitted'), status.totals.submitted], [t('发送失败', 'Failed'), status.totals.failed]]
       return h('div', { className: cls('grid') },
-        h(Preview, { attached: status.config.attachScreenshot }),
-        h('div', { className: cls('stack') },
-          h('section', { className: cls('card') },
-            title(t('聊天与连接', 'Chat and connection')),
-            h('dl', { className: cls('detail') }, ...values.flatMap(([label, value]) => [
-              h('dt', { key: label }, label), h('dd', { key: label + '-value' }, value),
-            ])),
-            actions(
-              button(target ? t('编辑设置', 'Edit settings') : t('设置目标聊天', 'Set target chat'), showSettings,
-                { tone: target ? undefined : 'primary' }),
-              button(t('打开独立聊天窗口', 'Open detached chat'), () => run('/window', {}, t('已打开聊天窗口', 'Chat window opened')),
-                { disabled: busy || !target }))),
-          h(Stickers, { target, run })))
+        h('section', { className: cls('card stack') },
+          title(t('运行概况', 'Activity overview')),
+          h('dl', { className: cls('metrics') }, ...totals.map(([label, value]) =>
+            h('div', { key: label }, h('dt', null, label), h('dd', null, value)))),
+          h('h4', null, t('最近发言', 'Recent sends')),
+          !status.recentSends.length && hint(t('暂无发送记录', 'No recent sends')),
+          ...status.recentSends.map((row, index) => h('div', { key: row.at + '-' + index, className: cls('send-item') },
+            h('div', { className: cls('toolbar') }, h('strong', null, row.targetName),
+              h('time', { dateTime: new Date(row.at).toISOString() }, new Date(row.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))),
+            row.thumbnail && h('img', { src: row.thumbnail, alt: row.content }),
+            h('p', null, row.content)))),
+        h(Preview, { key: (target?.id ?? 'main') + ':' + status.connected, connected: status.connected, targetId: target?.id }),
+        h(Targets, { status, selected: target?.id, select, run, busy }))
     }
 
     function PanelBody() {
@@ -513,17 +666,25 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [notice, setNotice] = useState('')
       const [drafts, setDrafts] = useState({})
+      const [selectedTarget, setSelectedTarget] = useState(null)
+      const [settingsSection, setSettingsSection] = useState('sources')
 
-      const refresh = async (signal) => {
-        setLoading(true)
+      useEffect(() => {
+        if (!notice) return
+        const timer = window.setTimeout(() => setNotice(''), 3500)
+        return () => window.clearTimeout(timer)
+      }, [notice])
+
+      const refresh = async (signal, quiet = false) => {
+        if (!quiet) setLoading(true)
         try {
           const result = await request('/status', { signal })
           if (!signal?.aborted) setStatus(result)
           return result
         } catch (failure) {
-          if (!signal?.aborted) setError(failure.message)
+          if (!quiet && !signal?.aborted) setError(failure.message)
           return null
-        } finally { if (!signal?.aborted) setLoading(false) }
+        } finally { if (!quiet && !signal?.aborted) setLoading(false) }
       }
 
       useEffect(() => {
@@ -531,6 +692,18 @@ window.__ModuleLoader__.load({
         refresh(active.signal)
         return () => active.abort()
       }, [])
+
+      useEffect(() => {
+        if (tab !== 'overview') return
+        const active = new AbortController()
+        let timer
+        const tick = async () => {
+          if (!document.hidden) await refresh(active.signal, true)
+          if (!active.signal.aborted) timer = window.setTimeout(tick, 5000)
+        }
+        timer = window.setTimeout(tick, 5000)
+        return () => { active.abort(); window.clearTimeout(timer) }
+      }, [tab])
 
       const run = async (path, body, message) => {
         if (operation) return null
@@ -561,7 +734,7 @@ window.__ModuleLoader__.load({
       const nav = [
         ['overview', t('概览', 'Overview')],
         ['settings', t('机器人设置', 'Bot settings')],
-        ['activity', t('会话与诊断', 'Sessions and diagnostics')],
+        ['activity', t('会话记录管理', 'Session records')],
       ]
       return h('div', { 'data-dsh-wechatbot': true },
         h('style', null, css),
@@ -572,21 +745,21 @@ window.__ModuleLoader__.load({
           actions(
             button(t('刷新状态', 'Refresh status'), () => { setError(''); refresh() }, { disabled: loading || busy }),
             running && button(t('立即巡检', 'Scan now'),
-              () => run('/detector', { action: 'scan' }, t('巡检完成', 'Scan complete')), { disabled: busy }),
+              () => run('/detector', { action: 'scan' }, t('巡检完成', 'Scan complete')), { disabled: busy || status.settings.ocrEnabled === false }),
             status && button(
               running ? t('停止', 'Stop') : t('启动', 'Start'),
               () => run('/detector', { action: running ? 'stop' : 'start' },
                 running ? t('机器人已停止', 'Bot stopped') : t('机器人已启动', 'Bot started')),
-              { disabled: busy || (!running && !status.settings.expectedGroup), tone: running ? undefined : 'primary' }))),
+              { disabled: busy || (!running && (!status.targets.length || !status.connected)), tone: running ? undefined : 'primary' }))),
         h('nav', { className: cls('nav'), 'aria-label': t('微信机器人面板', 'WeChat bot panel') },
           ...nav.map(([value, label]) => h('button', {
             key: value, type: 'button', 'aria-pressed': tab === value, onClick: () => setTab(value),
           }, label))),
         error && h('div', { className: cls('banner error'), role: 'alert' }, error),
         notice && h('div', { className: cls('banner'), role: 'status' }, notice),
-        status && tab === 'overview' && h(Overview, { status, busy, run, showSettings: () => setTab('settings') }),
-        status && tab === 'settings' && h(Settings, { status, onSave: save, busy, drafts, setDrafts }),
-        status && tab === 'activity' && h(Activity, { run, status }))
+        status && tab === 'overview' && h(Overview, { status, busy, run, selected: selectedTarget, select: setSelectedTarget }),
+        status && tab === 'settings' && h(Settings, { status, onSave: save, run, busy, drafts, setDrafts, selectedTarget, section: settingsSection, setSection: setSettingsSection }),
+        status && tab === 'activity' && h(Activity, { run, busy }))
     }
 
     function Panel(props) {

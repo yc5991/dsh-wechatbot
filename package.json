@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechatbot",
-  "version": "0.3.0-preview.3",
+  "version": "0.3.0-preview.7",
   "private": true,
   "description": "A vision-based WeChat bot for macOS that supports group and private chats.",
   "type": "module",
@@ -9,6 +9,10 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
+    "./reply-preset": "./lib/agent-preset.js",
+    "./reply-preset/locale/*.json": "./locale/reply-preset/*.json",
+    "./sticker-labels-preset": "./lib/agent-preset.js",
+    "./sticker-labels-preset/locale/*.json": "./locale/sticker-labels-preset/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
@@ -16,8 +20,9 @@
     "client.js",
     "lib",
     "agent/template",
+    "agent/examples",
     "cordis.patch.yml",
-    "locale/*.json",
+    "locale",
     "docs",
     "icon.svg"
   ],

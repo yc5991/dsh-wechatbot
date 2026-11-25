@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "dsh-wechatbot",
-    "description": "A vision-based WeChat bot for macOS that supports group and private chats.",
+    "description": "Detects new messages in WeChat for macOS, reads chats with vision, and verifies the target window before sending replies.",
     "detail": "docs/DETAIL.md"
   }
 }
