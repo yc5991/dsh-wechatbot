@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="WeChat bot bridge">
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#07C160"/>
+  <path d="M20 22h17a7 7 0 0 1 7 7v7a7 7 0 0 1-7 7H30l-7 5v-5h-3a7 7 0 0 1-7-7v-7a7 7 0 0 1 7-7z" fill="#ffffff" opacity="0.95"/>
+  <circle cx="25" cy="32" r="2.6" fill="#07C160"/>
+  <circle cx="32" cy="32" r="2.6" fill="#07C160"/>
+  <circle cx="39" cy="32" r="2.6" fill="#07C160"/>
+  <path d="M44 14l2.2 4.8L51 21l-4.8 2.2L44 28l-2.2-4.8L37 21l4.8-2.2z" fill="#ffffff"/>
+</svg>

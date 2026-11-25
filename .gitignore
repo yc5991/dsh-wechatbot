@@ -1,0 +1,29 @@
+node_modules/
+.DS_Store
+*.log
+.legacy-backup/
+
+# 运行时数据不进版本库：人设、记忆、会话
+agent/PERSONA.md
+agent/AGENT.md
+agent/MEMORY.md
+agent/sessions/
+
+# 草稿/备份的人设文档也不要进版本库（含 (1)、.bak 之类）
+agent/*.md
+agent/*(*).md
+agent/*.bak*
+
+# Local runtime data and credentials
+.dsh/
+.env
+.env.*
+*.bak
+*.jsonl
+*.sqlite
+*.sqlite3
+/queue.json
+/detector.json
+/quota.json
+/stickers/
+/captures/

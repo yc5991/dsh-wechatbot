@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "微信机器人桥接",
+    "description": "通过视觉识别实现 macOS 微信机器人，支持群聊和私聊。",
+    "detail": "docs/DETAIL.md"
+  }
+}

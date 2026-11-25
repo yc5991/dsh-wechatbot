@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "dsh-wechatbot",
+    "description": "A vision-based WeChat bot for macOS that supports group and private chats.",
+    "detail": "docs/DETAIL.md"
+  }
+}
