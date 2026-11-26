@@ -147,7 +147,9 @@ window.__ModuleLoader__.load({
       'data-tone': opts.tone, 'aria-pressed': opts.pressed,
     }, text)
 
-    function Preview({ connected, targetId, captureProtected, windowCaptureProtected, canEdit, busy, onToggleCaptureProtected }) {
+    function Preview({ connected, target, captureProtected, windowCaptureProtected, canEdit, busy, onToggleCaptureProtected }) {
+      const targetId = target?.id
+      const isClawbot = target?.mode === 'clawbot'
       const [shot, setShot] = useState(null)
       const [live, setLive] = useState(false)
       const [loading, setLoading] = useState(false)
@@ -156,7 +158,7 @@ window.__ModuleLoader__.load({
       const url = useRef(null)
 
       const capture = async () => {
-        if (controller.current || document.hidden || connected !== true || captureProtected) return false
+        if (controller.current || document.hidden || connected !== true || captureProtected || isClawbot) return false
         const active = new AbortController()
         controller.current = active
         setLoading(true)
@@ -201,7 +203,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       useEffect(() => {
-        if (!live || connected !== true || captureProtected) return
+        if (!live || connected !== true || captureProtected || isClawbot) return
         let active = true
         let timer
         const refresh = async () => {
@@ -216,7 +218,7 @@ window.__ModuleLoader__.load({
           window.clearTimeout(timer)
           controller.current?.abort()
         }
-      }, [live, connected, captureProtected])
+      }, [live, connected, captureProtected, isClawbot])
 
       const connection = connected === null ? t('状态未知', 'Status unknown')
         : connected ? t('已连接', 'Connected') : t('未连接', 'Disconnected')
@@ -236,15 +238,18 @@ window.__ModuleLoader__.load({
           t('检测到微信窗口开启了系统防截屏保护，建议勾选上方「防截屏模式」以跳过截图与输入框 OCR 校验。',
             'WeChat screen-capture protection detected. Enable Capture-protected mode above to bypass screenshot and OCR checks.')),
         h('div', { className: cls('frame'), 'aria-busy': loading },
-          captureProtected
-            ? hint(t('已开启防截屏模式：已跳过窗口截图、OCR 与输入框图像核对，使用独立窗口标题校验与无像素收发。',
-              'Capture-protected mode active: window screenshots, OCR, and composer image checks are bypassed.'))
-            : shot ? h('img', { src: shot, alt: t('微信聊天窗口截图', 'WeChat chat window') })
-              : hint(loading ? t('正在截取…', 'Capturing…') : t('暂无预览', 'No preview'))),
+          isClawbot
+            ? hint(t(`当前选中「${target.name}」为微信官方私聊通道（ClawBot），消息与图片通过后台加密通道直连收发，无需打开桌面微信窗口。`,
+              `Selected "${target.name}" is an official WeChat ClawBot channel. Messages and images transfer directly without a desktop WeChat window.`))
+            : captureProtected
+              ? hint(t('已开启防截屏模式：已跳过窗口截图、OCR 与输入框图像核对，使用独立窗口标题校验与无像素收发。',
+                'Capture-protected mode active: window screenshots, OCR, and composer image checks are bypassed.'))
+              : shot ? h('img', { src: shot, alt: t('微信聊天窗口截图', 'WeChat chat window') })
+                : hint(loading ? t('正在截取…', 'Capturing…') : t('暂无预览', 'No preview'))),
         actions(
-          button(t('截取一张', 'Capture once'), capture, { disabled: !connected || captureProtected || live || loading || busy }),
+          button(t('截取一张', 'Capture once'), capture, { disabled: !connected || captureProtected || isClawbot || live || loading || busy }),
           button(live ? t('暂停实时预览', 'Pause live preview') : t('开启实时预览', 'Start live preview'),
-            () => setLive(!live), { disabled: !connected || captureProtected || busy || (loading && !live), pressed: live, tone: 'primary' })),
+            () => setLive(!live), { disabled: !connected || captureProtected || isClawbot || busy || (loading && !live), pressed: live, tone: 'primary' })),
         error && h('p', { className: cls('error'), role: 'alert' }, error))
     }
 
@@ -276,10 +281,28 @@ window.__ModuleLoader__.load({
       { id: 'advanced', label: t('高级设置', 'Advanced'), fields: [
         field('reuseWindowMinutes', t('会话复用窗口（分钟）', 'Session reuse window (minutes)'), 'number', { min: 1, max: 60 }),
         field('archiveAfterMinutes', t('静默归档时间（分钟）', 'Archive after inactivity (minutes)'), 'number', { min: 1, max: 120 }),
+        field('maxTurnsPerSession', t('单次会话最大轮次', 'Max turns per session'), 'number', {
+          min: 0,
+          max: 500,
+          help: t('达到该轮次后自动归档并开启新会话，防止长对话人设遗忘（0 表示不限）。', 'Archive and rotate session after N turns to prevent persona drift (0 = unlimited).'),
+        }),
         field('memoryMaxEntries', t('摘要保留条数', 'Summary entries retained'), 'number', { min: 5, max: 500 }),
         field('includeSessionMemory', t('跨会话记忆', 'Cross-session memory'), 'boolean'),
         field('memoryPromptEntries', t('注入记忆条数', 'Memory entries per prompt'), 'number', { min: 0, max: 20 }),
         field('workspaceTitle', t('工作区名', 'Workspace name')),
+        field('antiDetection.enabled', t('启用防检测拟人化', 'Enable anti-detection humanization'), 'boolean'),
+        field('antiDetection.phraseTyping', t('模拟词组打字输入', 'Phrase-chunked typing'), 'boolean', {
+          help: t('短句按 1~4 字词组节奏逐段输入，避免 100% 剪贴板粘贴特征；长段或链接自动粘贴。', 'Type short lines in 1-4 char phrase chunks instead of clipboard paste.'),
+        }),
+        field('antiDetection.curvedMouse', t('曲线轨迹与随机靶点', 'Curved mouse & Gaussian click jitter'), 'boolean', {
+          help: t('沿贝塞尔加减速曲线移动鼠标，高斯随机采样输入框点击点，连发不重复点击输入框。', 'Use cubic Bézier motion, Gaussian click jitter, and skip redundant clicks.'),
+        }),
+        field('antiDetection.naturalCadence', t('字数关联拟人停顿', 'Length-aware log-normal cadence'), 'boolean', {
+          help: t('根据字数与对数正态分布动态计算构思及连发气泡间隔。', 'Scale composing and inter-bubble pauses with text length.'),
+        }),
+        field('antiDetection.minimalTouch', t('最小化窗口触碰', 'Minimize window touches'), 'boolean', {
+          help: t('通知已有完整正文时不唤醒微信窗口，目标已在前台时不重复置顶。', 'Avoid touching WeChat windows on wake unless screen read is needed.'),
+        }),
       ] },
     ]
 
@@ -381,12 +404,15 @@ window.__ModuleLoader__.load({
         const props = { id, name: key, disabled, 'aria-describedby': help ? id + '-hint' : undefined,
           onChange: (event) => update(key, type === 'boolean' ? event.target.checked : event.target.value) }
         if (type === 'boolean') return h('div', { key, className: cls('field') },
-          h('label', { className: cls('switch') }, h('input', { ...props, checked: Boolean(value(item)), type: 'checkbox' }), label))
+          h('label', { className: cls('switch') }, h('input', { ...props, checked: Boolean(value(item)), type: 'checkbox' }), label),
+          help && h('span', { id: id + '-hint', className: cls('muted') }, help))
         const numeric = type === 'number' || type === 'percent'
         return h('div', { key, className: cls('field') }, h('label', { htmlFor: id }, label),
           type === 'list' ? h('textarea', { ...props, value: value(item), rows: 3 })
-            : h('input', { ...props, value: value(item), type: numeric ? 'number' : 'text',
-              min: item.min, max: item.max, step: item.step ?? (type === 'percent' ? 'any' : 1) }),
+            : type === 'select' ? h('select', { ...props, value: value(item) },
+              ...(item.options || []).map(([optVal, optLabel]) => h('option', { key: optVal, value: optVal }, optLabel)))
+              : h('input', { ...props, value: value(item), type: numeric ? 'number' : 'text',
+                min: item.min, max: item.max, step: item.step ?? (type === 'percent' ? 'any' : 1) }),
           help && h('span', { id: id + '-hint', className: cls('muted') }, help))
       }
 
@@ -411,6 +437,16 @@ window.__ModuleLoader__.load({
             draft: drafts['documents.' + key], canReplace: status.canEdit, busy,
             onReplace: (file) => update('documents.' + key, file) })))
 
+      const advancedFields = group.id === 'advanced' && h('div', { className: cls('stack') },
+        h('div', { className: cls('fields') }, ...group.fields.slice(0, 7).map((item) => renderField(item))),
+        h('div', { className: cls('setting-block') },
+          h('h4', null, t('防检测', 'Anti-detection')),
+          hint(t('模拟真人输入习惯与运动轨迹，降低微信客户端对自动化脚本的行为特征识别风险。',
+            'Simulate human typing, trajectories, and cadence to reduce WeChat client bot-detection risk.')),
+          renderField(group.fields[7]),
+          h('div', { className: cls('fields') },
+            ...group.fields.slice(8).map((item) => renderField(item, !value(group.fields[7]))))))
+
       return h('form', { className: cls('settings stack'), onSubmit: submit, noValidate: true },
         h('div', { className: cls('toolbar save') }, title(t('机器人设置', 'Bot settings')),
           actions(
@@ -425,7 +461,7 @@ window.__ModuleLoader__.load({
             ...groups.map((item) => button(item.label, () => setSection(item.id), { key: item.id, pressed: item.id === group.id }))),
           h('div', { className: cls('stack') },
             group.id !== 'stickers' && h('fieldset', { className: cls('card'), disabled: group.id !== 'persona' && (busy || !status.canEdit) },
-              title(group.label), sourceFields || personaFields ||
+              title(group.label), sourceFields || personaFields || advancedFields ||
                 h('div', { className: cls('fields') },
                   ...group.fields.filter((item) => !item.key.startsWith('replyDelay')).map((item) => renderField(item)),
                   group.id === 'reply' && h('fieldset', { className: cls('field-wide delay') },
@@ -465,6 +501,9 @@ window.__ModuleLoader__.load({
       }
       const job = data?.job
       const items = data?.stickers ?? []
+      const targetObj = status.targets.find((item) => item.id === target)
+      const targetCanSend = Boolean(targetObj && (targetObj.mode === 'clawbot' ? targetObj.ready : status.connected))
+      const canSyncFavorites = Boolean(targetObj && targetObj.mode !== 'clawbot' && status.connected)
       const unlabeled = items.some((row) => row.available && !row.source)
       const normalize = (value) => String(value ?? '').normalize('NFKC').trim().toLocaleLowerCase()
       const tags = new Map()
@@ -484,7 +523,7 @@ window.__ModuleLoader__.load({
               h('option', { value: '' }, t('选择聊天', 'Choose a chat')),
               ...status.targets.map((chat) => h('option', { key: chat.id, value: chat.id }, chat.name))),
             button(t('获取全部收藏表情', 'Get all favorites'), () => runSticker('/stickers/sync', { targetId: target }, t('收藏已更新', 'Favorites updated')),
-              { disabled: busy || !target || !status.connected }),
+              { disabled: busy || !canSyncFavorites }),
             button(t('自动标注', 'Auto-label'), () => runSticker('/stickers/auto-label', {}, t('正在使用 DSH 标注', 'Labeling with DSH')),
               { disabled: busy || !unlabeled || job?.state === 'running' }))),
         error && h('p', { role: 'alert', className: cls('error') }, error),
@@ -534,10 +573,10 @@ window.__ModuleLoader__.load({
                         ? await runSticker('/stickers/remove', { id: row.id }, t('表情已删除', 'Sticker removed'))
                         : await run('/stickers/send', { id: row.id, targetId: target }, t('表情已提交给微信', 'Sticker submitted to WeChat'))
                       if (result) { close(); if (confirm.action === 'remove') setTag('') }
-                    }, { tone: 'danger', disabled: busy || (confirm.action === 'send' && (!target || !status.connected)) })))
+                    }, { tone: 'danger', disabled: busy || (confirm.action === 'send' && !targetCanSend) })))
                   : actions(
                     button(t('编辑标注', 'Edit label'), () => { close(); setEdit({ id: row.id, tags: row.tags.join('，'), description: row.description }) }, { disabled: busy }),
-                    button(t('发送…', 'Send…'), () => setConfirm({ id: row.id, action: 'send' }), { disabled: busy || !target || !row.available || !status.connected }),
+                    button(t('发送…', 'Send…'), () => setConfirm({ id: row.id, action: 'send' }), { disabled: busy || !row.available || !targetCanSend }),
                     button(t('删除…', 'Delete…'), () => setConfirm({ id: row.id, action: 'remove' }), { disabled: busy, tone: 'danger' })))))))
     }
 
@@ -598,11 +637,27 @@ window.__ModuleLoader__.load({
       const [results, setResults] = useState(null)
       const [matches, setMatches] = useState([])
       const [finding, setFinding] = useState(false)
+      const [qr, setQr] = useState(null)
+      const [verifyCode, setVerifyCode] = useState('')
       const [error, setError] = useState('')
+      const qrMetaRef = useRef({ label: '', targetIndex: null })
       const rows = draft ?? status.targets
+      const serializeTargets = (list) => list.map(({ name: itemName, mode: itemMode, accountId, userId }) =>
+        itemMode === 'clawbot'
+          ? { name: itemName, mode: 'clawbot', accountId, ...(userId ? { userId } : {}) }
+          : { name: itemName, mode: itemMode })
+      const defaultClawbotName = () => {
+        const base = t('官方私聊', 'ClawBot 私聊')
+        if (!rows.some((r) => r.name === base)) return base
+        for (let i = 2; i <= 20; i += 1) {
+          const candidate = `${base} ${i}`
+          if (!rows.some((r) => r.name === candidate)) return candidate
+        }
+        return `${base}-${Date.now().toString(36).slice(-4)}`
+      }
       const edit = (index, patch) => setDraft(rows.map((row, position) => position === index ? { ...row, ...patch } : row))
       const add = (names) => {
-        const next = [...rows, ...names.map((name) => ({ name, mode }))]
+        const next = [...rows, ...names.map((n) => ({ name: n, mode }))]
         if (next.length > 10) return setError(t('最多配置 10 个聊天。', 'Configure up to 10 chats.'))
         setDraft(next)
         setName('')
@@ -616,39 +671,149 @@ window.__ModuleLoader__.load({
         catch (failure) { setError(failure.message) }
         finally { setFinding(false) }
       }
+      const startQr = async (rebindIndex = null) => {
+        setError('')
+        setVerifyCode('')
+        const existing = rebindIndex != null ? rows[rebindIndex] : null
+        const initialLabel = existing?.name || defaultClawbotName()
+        qrMetaRef.current = { label: initialLabel, targetIndex: rebindIndex }
+        try {
+          const res = await request('/ilink/login/start', {
+            body: { accountId: existing?.accountId || '', force: true },
+          })
+          setQr({ ...res, targetIndex: rebindIndex, label: initialLabel })
+        } catch (failure) {
+          setError(failure.message)
+        }
+      }
+      const submitVerify = async () => {
+        if (!qr?.sessionKey || !verifyCode.trim()) return
+        setError('')
+        try {
+          const next = await request('/ilink/login/verify', { body: { sessionKey: qr.sessionKey, code: verifyCode.trim() } })
+          setVerifyCode('')
+          setQr((prev) => (prev ? { ...prev, ...next } : prev))
+        } catch (failure) {
+          setError(failure.message)
+        }
+      }
+      const cancelQr = () => {
+        const key = qr?.sessionKey
+        setQr(null)
+        setVerifyCode('')
+        if (key) request('/ilink/login/cancel', { body: { sessionKey: key } }).catch(() => {})
+      }
+
+      useEffect(() => {
+        if (!qr?.sessionKey || qr.done) return
+        const active = new AbortController()
+        let timer
+        const tick = async () => {
+          try {
+            const next = await request('/ilink/login/status', {
+              body: { sessionKey: qr.sessionKey },
+              signal: active.signal,
+            })
+            if (active.signal.aborted) return
+            setQr((prev) => (prev && prev.sessionKey === next.sessionKey ? { ...prev, ...next } : prev))
+            if (next.connected && next.accountId) {
+              const { label, targetIndex } = qrMetaRef.current
+              const baseRows = draft ?? status.targets
+              const finalName = (label || '').trim() || defaultClawbotName()
+              const nextRows = targetIndex != null
+                ? baseRows.map((row, idx) => idx === targetIndex
+                  ? { ...row, accountId: next.accountId, userId: next.userId || row.userId || '' }
+                  : row)
+                : [...baseRows, { name: finalName, mode: 'clawbot', accountId: next.accountId, userId: next.userId || '' }]
+              const saved = await run('/settings', { targets: serializeTargets(nextRows) }, t('已绑定并保存官方私聊通道', 'Official ClawBot channel bound and saved'))
+              if (saved) {
+                setDraft(null)
+                setQr(null)
+              }
+              return
+            }
+            if (!next.done) timer = window.setTimeout(tick, next.needVerifyCode ? 2000 : 1200)
+          } catch (failure) {
+            if (!active.signal.aborted) setError(failure.message)
+          }
+        }
+        timer = window.setTimeout(tick, 1200)
+        return () => { active.abort(); window.clearTimeout(timer) }
+      }, [qr?.sessionKey, qr?.done, qr?.needVerifyCode])
+
       const modeSelect = (value, onChange) => h('select', { 'aria-label': t('聊天模式', 'Chat mode'), value,
         onChange: (event) => onChange(event.target.value) },
       h('option', { value: 'group' }, t('群聊', 'Group')), h('option', { value: 'private' }, t('私聊', 'Private')))
+      const modeBadge = (itemMode) => itemMode === 'clawbot'
+        ? t('官方私聊', 'ClawBot')
+        : itemMode === 'private' ? t('私聊', 'Private') : t('群聊', 'Group')
+
       return h('section', { className: cls('card chat-config stack') },
         h('div', { className: cls('toolbar') }, title(t('聊天配置', 'Chat targets')), hint(rows.length + ' / 10')),
         !rows.length && hint(t('尚未配置聊天', 'No chats configured')),
         h('div', { className: cls('list') }, ...rows.map((row, index) => {
           const live = status.targets.find((item) => item.id === row.id)
+          const isClawbot = row.mode === 'clawbot'
+          const readyLabel = isClawbot
+            ? (live?.tokenStale ? t('凭证过期', 'Token expired') : live?.ready ? t('就绪', 'Ready') : t('未就绪', 'Not ready'))
+            : (live?.ready ? t('就绪', 'Ready') : t('未就绪', 'Not ready'))
           return h('div', { className: cls('list-row'), key: row.id ?? index },
             row.editing ? actions(
               h('input', { 'aria-label': t('聊天名称', 'Chat name'), value: row.name, onChange: (event) => edit(index, { name: event.target.value }) }),
-              modeSelect(row.mode, (value) => edit(index, { mode: value })))
+              isClawbot ? hint('【' + modeBadge(row.mode) + '】') : modeSelect(row.mode, (value) => edit(index, { mode: value })))
               : h('div', { className: cls('target-name') },
-                button(row.name + '【' + (row.mode === 'private' ? t('私聊', 'Private') : t('群聊', 'Group')) + '】', () => select(row.id),
+                button(row.name + '【' + modeBadge(row.mode) + '】', () => select(row.id),
                   { disabled: !live, pressed: selected === row.id }),
-                h('span', { className: cls('status'), 'data-ready': String(Boolean(live?.ready)) }, live?.ready ? t('就绪', 'Ready') : t('未就绪', 'Not ready'))),
+                h('span', { className: cls('status'), 'data-ready': String(Boolean(live?.ready)) }, readyLabel)),
             hint(t('待处理 ', 'Pending ') + (live?.pending ?? 0)),
-            actions(button(t('准备窗口', 'Prepare window'), () => run('/window', { targetId: row.id }, t('窗口已就绪', 'Window ready')),
-              { disabled: !live || !status.connected || busy }),
-            button(t('编辑', 'Edit'), () => edit(index, { editing: !row.editing }), { disabled: busy || !status.canEdit }),
-            button(t('移除', 'Remove'), () => setDraft(rows.filter((_, i) => i !== index)), { disabled: busy || !status.canEdit })))
+            actions(
+              isClawbot
+                ? button(t('重新扫码', 'Rescan QR'), () => startQr(index), { disabled: busy || !status.canEdit })
+                : button(t('准备窗口', 'Prepare window'), () => run('/window', { targetId: row.id }, t('窗口已就绪', 'Window ready')),
+                  { disabled: !live || !status.connected || busy }),
+              button(t('编辑', 'Edit'), () => edit(index, { editing: !row.editing }), { disabled: busy || !status.canEdit }),
+              button(t('移除', 'Remove'), () => setDraft(rows.filter((_, i) => i !== index)), { disabled: busy || !status.canEdit })))
         })),
         h('div', { className: cls('toolbar') }, actions(
           h('input', { 'aria-label': t('添加聊天', 'Add a chat'), placeholder: t('输入完整聊天名', 'Enter the full chat name'), value: name,
             onChange: (event) => setName(event.target.value) }),
           modeSelect(mode, setMode),
           button(t('添加', 'Add'), () => add([name.trim()]), { disabled: !name.trim() || rows.length >= 10 || busy || !status.canEdit }),
-          button(finding ? t('查找中…', 'Searching…') : t('查找微信聊天', 'Find WeChat chats'), find, { disabled: finding || busy || rows.length >= 10 || !status.canEdit })),
+          button(finding ? t('查找中…', 'Searching…') : t('查找微信聊天', 'Find WeChat chats'), find, { disabled: finding || busy || rows.length >= 10 || !status.canEdit }),
+          button(t('扫码添加官方私聊', 'Scan QR for ClawBot'), () => startQr(null), { disabled: Boolean(qr && !qr.done) || rows.length >= 10 || busy || !status.canEdit, tone: 'primary' })),
         draft && actions(button(t('取消', 'Cancel'), () => { setDraft(null); setError('') }, { disabled: busy }),
           button(t('保存聊天', 'Save chats'), async () => {
-            const result = await run('/settings', { targets: rows.map(({ name, mode }) => ({ name, mode })) }, t('聊天配置已保存', 'Chat targets saved'))
+            const result = await run('/settings', { targets: serializeTargets(rows) }, t('聊天配置已保存', 'Chat targets saved'))
             if (result) setDraft(null)
           }, { tone: 'primary', disabled: busy || !status.canEdit }))),
+        qr && h('div', { className: cls('setting-block') },
+          h('div', { className: cls('toolbar') },
+            h('strong', null, qr.targetIndex != null ? t('重新扫码绑定官方私聊', 'Re-bind ClawBot QR') : t('微信扫码添加官方私聊（ClawBot）', 'Bind WeChat Official ClawBot')),
+            actions(
+              button(t('刷新二维码', 'Refresh QR'), () => startQr(qr.targetIndex), { disabled: busy }),
+              button(t('取消扫码', 'Cancel'), cancelQr, { disabled: busy }))),
+          qr.targetIndex == null && h('div', { className: cls('field') },
+            h('label', null, t('对话名称', 'Chat display name')),
+            h('input', {
+              value: qr.label ?? '',
+              placeholder: t('如：主人私聊', 'e.g. Personal ClawBot'),
+              onChange: (event) => {
+                const nextLabel = event.target.value
+                qrMetaRef.current.label = nextLabel
+                setQr((prev) => (prev ? { ...prev, label: nextLabel } : prev))
+              },
+            })),
+          qr.qrImage && h('img', { src: qr.qrImage, alt: t('微信官方 ClawBot 登录二维码', 'WeChat ClawBot QR code'), style: { width: '188px', height: '188px', borderRadius: '8px', border: '1px solid var(--wb-border)' } }),
+          h('p', { className: qr.status === 'error' ? cls('error') : cls('muted'), role: 'status' }, qr.message),
+          qr.qrcodeUrl && hint(t('备用链接：', 'QR URL: ') + qr.qrcodeUrl),
+          qr.needVerifyCode && actions(
+            h('input', {
+              'aria-label': t('手机微信配对码', 'WeChat verify code'),
+              placeholder: t('输入手机显示的配对数字', 'Enter code shown on phone'),
+              value: verifyCode,
+              onChange: (event) => setVerifyCode(event.target.value),
+            }),
+            button(t('提交配对码', 'Submit code'), submitVerify, { tone: 'primary', disabled: !verifyCode.trim() || busy }))),
         results && h('div', { className: cls('target-candidates stack') },
           h('input', { 'aria-label': t('筛选候选聊天', 'Filter chats'), placeholder: t('搜索候选聊天', 'Search matches'), value: name,
             onChange: (event) => setName(event.target.value) }),
@@ -681,7 +846,7 @@ window.__ModuleLoader__.load({
         h(Preview, {
           key: (target?.id ?? 'main') + ':' + status.connected,
           connected: status.connected,
-          targetId: target?.id,
+          target,
           captureProtected: Boolean(status.settings?.captureProtected ?? status.captureProtected),
           windowCaptureProtected: status.windowCaptureProtected === true,
           canEdit: status.canEdit,
@@ -785,7 +950,7 @@ window.__ModuleLoader__.load({
               running ? t('停止', 'Stop') : t('启动', 'Start'),
               () => run('/detector', { action: running ? 'stop' : 'start' },
                 running ? t('机器人已停止', 'Bot stopped') : t('机器人已启动', 'Bot started')),
-              { disabled: busy || (!running && (!status.targets.length || !status.connected)), tone: running ? undefined : 'primary' }))),
+              { disabled: busy || (!running && !(status.canStart ?? (status.targets.length && status.connected))), tone: running ? undefined : 'primary' }))),
         h('nav', { className: cls('nav'), 'aria-label': t('微信机器人面板', 'WeChat bot panel') },
           ...nav.map(([value, label]) => h('button', {
             key: value, type: 'button', 'aria-pressed': tab === value, onClick: () => setTab(value),

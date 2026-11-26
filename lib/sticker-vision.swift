@@ -250,21 +250,27 @@ func interactIfWeChatIsFront(windowID: Int, frame: CGRect, point: CGPoint, title
     }
     var origin = CGPoint.zero
     guard AXValueGetValue(location, .cgPoint, &origin), origin == frame.origin else { result(["acted": false]); return }
+    let src = CGEventSource(stateID: .hidSystemState)
     if let scroll {
-        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: scroll, wheel2: 0, wheel3: 0) else {
+        guard let event = CGEvent(scrollWheelEvent2Source: src, units: .pixel, wheelCount: 1, wheel1: scroll, wheel2: 0, wheel3: 0) else {
             result(["acted": false]); return
         }
-        CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(UInt32.random(in: 28_000...62_000))
         event.location = point
         event.post(tap: .cghidEventTap)
         result(["acted": true]); return
     }
-    guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
-          let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
+    CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(UInt32.random(in: 42_000...90_000))
+    guard let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
+          let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
         result(["acted": false]); return
     }
+    down.setIntegerValueField(.mouseEventClickState, value: 1)
+    up.setIntegerValueField(.mouseEventClickState, value: 1)
     down.post(tap: .cghidEventTap)
-    usleep(40_000)
+    usleep(UInt32.random(in: 55_000...125_000))
     up.post(tap: .cghidEventTap)
     result(["acted": true])
 }

@@ -1,8 +1,8 @@
 {
   "name": "dsh-wechatbot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Zero-injection WeChat bot bridge for DSH on macOS and Windows, supporting group and private chats.",
+  "description": "Zero-injection WeChat bot bridge for DSH (macOS & Windows RPA + official ClawBot QR channel), supporting group and private chats.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -31,6 +31,8 @@
     "dsh-plugin",
     "wechat",
     "wechat-bot",
+    "clawbot",
+    "ilink",
     "macos",
     "windows",
     "uia",

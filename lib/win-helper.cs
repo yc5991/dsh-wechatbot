@@ -77,6 +77,7 @@ public static class Program
     private const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
     private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint KEYEVENTF_UNICODE = 0x0004;
 
     private const ushort VK_BACK = 0x08;
     private const ushort VK_RETURN = 0x0D;
@@ -117,6 +118,9 @@ public static class Program
     [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT Point);
     [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT lpPoint);
+
+    private static readonly Random Rng = new Random();
 
     private const int SM_XVIRTUALSCREEN = 76;
     private const int SM_YVIRTUALSCREEN = 77;
@@ -245,23 +249,85 @@ public static class Program
         SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT)));
     }
 
+    private static void SendUnicodeChar(char ch)
+    {
+        INPUT[] inputs = new INPUT[2];
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].U.ki.wVk = 0;
+        inputs[0].U.ki.wScan = (ushort)ch;
+        inputs[0].U.ki.dwFlags = KEYEVENTF_UNICODE;
+        inputs[1].type = INPUT_KEYBOARD;
+        inputs[1].U.ki.wVk = 0;
+        inputs[1].U.ki.wScan = (ushort)ch;
+        inputs[1].U.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+
     private static void SendCtrlCombo(ushort vk)
     {
         SendKey(VK_CONTROL, false);
-        Thread.Sleep(25);
+        Thread.Sleep(Rng.Next(24, 48));
         SendKey(vk, false);
-        Thread.Sleep(35);
+        Thread.Sleep(Rng.Next(45, 95));
         SendKey(vk, true);
-        Thread.Sleep(25);
+        Thread.Sleep(Rng.Next(22, 45));
         SendKey(VK_CONTROL, true);
+    }
+
+    private static void CurveMove(int startX, int startY, int endX, int endY, int steps, int minSleepMs, int maxSleepMs)
+    {
+        double dx = endX - startX;
+        double dy = endY - startY;
+        double dist = Math.Sqrt(dx * dx + dy * dy);
+        if (dist < 4.0 || steps <= 1)
+        {
+            SendMouse(MOUSEEVENTF_MOVE, endX, endY, 0);
+            return;
+        }
+        double nx = -dy / dist;
+        double ny = dx / dist;
+        double arc = (Rng.NextDouble() * 0.28 - 0.14) * dist;
+        double c1x = startX + dx * 0.30 + nx * arc;
+        double c1y = startY + dy * 0.30 + ny * arc;
+        double c2x = startX + dx * 0.72 + nx * arc * 0.55;
+        double c2y = startY + dy * 0.72 + ny * arc * 0.55;
+
+        for (int i = 1; i <= steps; i++)
+        {
+            double u = i / (double)steps;
+            double t = u * u * u * (10.0 + u * (-15.0 + 6.0 * u));
+            double mt = 1.0 - t;
+            double px = mt * mt * mt * startX + 3 * mt * mt * t * c1x + 3 * mt * t * t * c2x + t * t * t * endX;
+            double py = mt * mt * mt * startY + 3 * mt * mt * t * c1y + 3 * mt * t * t * c2y + t * t * t * endY;
+            if (i < steps)
+            {
+                px += Rng.NextDouble() * 1.6 - 0.8;
+                py += Rng.NextDouble() * 1.6 - 0.8;
+            }
+            SendMouse(MOUSEEVENTF_MOVE, (int)Math.Round(px), (int)Math.Round(py), 0);
+            Thread.Sleep(Rng.Next(minSleepMs, maxSleepMs + 1));
+        }
+    }
+
+    private static void MoveMouseHuman(int targetX, int targetY)
+    {
+        POINT cur;
+        if (!GetCursorPos(out cur))
+        {
+            SendMouse(MOUSEEVENTF_MOVE, targetX, targetY, 0);
+            return;
+        }
+        double dist = Math.Sqrt((targetX - cur.X) * (double)(targetX - cur.X) + (targetY - cur.Y) * (double)(targetY - cur.Y));
+        int steps = Math.Max(6, Math.Min(22, (int)(dist / 36.0)));
+        CurveMove(cur.X, cur.Y, targetX, targetY, steps, 7, 16);
     }
 
     private static void LeftClick(int x, int y)
     {
-        SendMouse(MOUSEEVENTF_MOVE, x, y, 0);
-        Thread.Sleep(45);
+        MoveMouseHuman(x, y);
+        Thread.Sleep(Rng.Next(45, 95));
         SendMouse(MOUSEEVENTF_LEFTDOWN, x, y, 0);
-        Thread.Sleep(35);
+        Thread.Sleep(Rng.Next(58, 128));
         SendMouse(MOUSEEVENTF_LEFTUP, x, y, 0);
     }
 
@@ -878,22 +944,15 @@ public static class Program
             return;
         }
 
-        SendMouse(MOUSEEVENTF_MOVE, x1, y1, 0);
-        Thread.Sleep(120);
+        MoveMouseHuman(x1, y1);
+        Thread.Sleep(Rng.Next(85, 155));
         SendMouse(MOUSEEVENTF_LEFTDOWN, x1, y1, 0);
-        Thread.Sleep(120);
-        int steps = 28;
-        for (int i = 1; i <= steps; i++)
-        {
-            double f = i / (double)steps;
-            int cx = (int)Math.Round(x1 + (x2 - x1) * f);
-            int cy = (int)Math.Round(y1 + (y2 - y1) * f);
-            SendMouse(MOUSEEVENTF_MOVE, cx, cy, 0);
-            Thread.Sleep(20);
-        }
-        Thread.Sleep(180);
+        Thread.Sleep(Rng.Next(95, 165));
+        int steps = Rng.Next(24, 35);
+        CurveMove(x1, y1, x2, y2, steps, 14, 28);
+        Thread.Sleep(Rng.Next(165, 275));
         SendMouse(MOUSEEVENTF_LEFTUP, x2, y2, 0);
-        Thread.Sleep(220);
+        Thread.Sleep(Rng.Next(185, 295));
 
         string copied = "";
         if (mode == "copy")
@@ -968,10 +1027,52 @@ public static class Program
         else if (action == "enter")
         {
             SendKey(VK_RETURN, false);
-            Thread.Sleep(30);
+            Thread.Sleep(Rng.Next(42, 95));
             SendKey(VK_RETURN, true);
         }
 
+        res["ok"] = true;
+        WriteJson(res);
+    }
+
+    private static void CmdTypeChunks(string[] args)
+    {
+        IntPtr hWnd = new IntPtr(long.Parse(args[1], CultureInfo.InvariantCulture));
+        string expectedTitle = args[2];
+        int wx = int.Parse(args[3], CultureInfo.InvariantCulture);
+        int wy = int.Parse(args[4], CultureInfo.InvariantCulture);
+        int ww = int.Parse(args[5], CultureInfo.InvariantCulture);
+        int wh = int.Parse(args[6], CultureInfo.InvariantCulture);
+
+        string stdinJson = Console.In.ReadToEnd();
+        List<Dictionary<string, object>> chunks = Serializer().Deserialize<List<Dictionary<string, object>>>(stdinJson);
+        Dictionary<string, object> res = new Dictionary<string, object>();
+        if (chunks == null)
+        {
+            res["ok"] = false;
+            res["error"] = "输入分块格式无效";
+            WriteJson(res);
+            return;
+        }
+
+        foreach (Dictionary<string, object> chunk in chunks)
+        {
+            if (!VerifyWindowGuard(hWnd, expectedTitle, wx, wy, ww, wh))
+            {
+                res["ok"] = false;
+                res["error"] = "微信窗口已切换或失去焦点，输入已中止";
+                WriteJson(res);
+                return;
+            }
+            string text = chunk.ContainsKey("text") ? Convert.ToString(chunk["text"]) : "";
+            int delayMs = chunk.ContainsKey("delayMs") ? Convert.ToInt32(chunk["delayMs"], CultureInfo.InvariantCulture) : 120;
+            for (int i = 0; i < text.Length; i++)
+            {
+                SendUnicodeChar(text[i]);
+                if (i + 1 < text.Length) Thread.Sleep(Rng.Next(6, 19));
+            }
+            Thread.Sleep(Math.Max(25, delayMs));
+        }
         res["ok"] = true;
         WriteJson(res);
     }
@@ -1387,6 +1488,7 @@ public static class Program
             if (mode == "clipboard-set-image") { CmdClipboardSetImage(args); return 0; }
             if (mode == "drag-copy") { CmdDragCopy(args); return 0; }
             if (mode == "composer-action") { CmdComposerAction(args); return 0; }
+            if (mode == "type-chunks") { CmdTypeChunks(args); return 0; }
 
             if (mode == "fingerprints")
             {

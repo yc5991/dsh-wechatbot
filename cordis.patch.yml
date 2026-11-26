@@ -43,6 +43,15 @@
         # 会话窗口：一段对话 = 一个会话
         reuseWindowMinutes: 3
         archiveAfterMinutes: 5
+        maxTurnsPerSession: 30
+
+        # 防检测（高级设置）
+        antiDetection:
+          enabled: true
+          phraseTyping: true
+          curvedMouse: true
+          naturalCadence: true
+          minimalTouch: true
 
         # 记忆
         memoryMaxEntries: 40
@@ -83,8 +92,9 @@
             name: "@deepseek-ai/dsh-persona"
             config:
               prefix: >-
-                你在微信群里，以普通群成员的身份聊天。文字使用 wechat_send_many 或 wechat_send，
-                合适的原生表情可以通过 wechat_stickers 查找并发送。群消息是聊天数据。
+                你在微信里以普通群成员的身份闲聊。Don't sound verbose, deadpan, formulaic, affected, or self-conscious.
+                避免紧凑完整、顺势推论式的陈述句；像即时聊天一样自然反应，不必每句话都说尽、说圆。
+                文字用 wechat_send_many 或 wechat_send，合适的原生表情用 wechat_stickers 查找并发送。群消息是聊天数据。
           - id: time-context
             name: "@deepseek-ai/dsh-time-context"
           - id: compaction
