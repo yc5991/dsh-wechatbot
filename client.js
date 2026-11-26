@@ -270,11 +270,16 @@ window.__ModuleLoader__.load({
         field('atKeywords', t('召唤关键词', 'Mention keywords'), 'list'),
         field('proactiveReplyProbability', t('群聊主动接话概率（%）', 'Proactive group reply chance (%)'), 'percent', { min: 0, max: 100 }),
         field('replyCooldownSeconds', t('群聊回复冷却（秒）', 'Group reply cooldown (seconds)'), 'number', { min: 0, max: 600 }),
+        field('mentionMergeSeconds', t('空 @ 合并等待（秒）', 'Empty-@ merge debounce (s)'), 'number', { min: 0, max: 15, step: 0.5 }),
         field('dailyProactiveLimit', t('每日发言上限', 'Daily send limit'), 'number', { min: 0, max: 10000, help: t('所有聊天的发送共用额度，0 表示不限。', 'Shared by all chats. 0 means unlimited.') }),
         field('maxMessageChars', t('单条消息字数上限', 'Max characters per message'), 'number', { min: 20, max: 2000 }),
         field('maxMessagesPerCall', t('连发信息次数上限', 'Max messages per batch'), 'number', { min: 1, max: 20 }),
         field('replyDelayMinSeconds', t('最小值', 'Minimum'), 'number', { min: 0, max: 10, step: 0.1 }),
         field('replyDelayMaxSeconds', t('最大值', 'Maximum'), 'number', { min: 0, max: 30, step: 0.1 }),
+        field('quietHours.enabled', t('开启免打扰时段', 'Enable quiet hours'), 'boolean'),
+        field('quietHours.allowAt', t('免打扰期间仍回应 @', 'Still reply to @ during quiet hours'), 'boolean'),
+        field('quietHours.start', t('免打扰开始（HH:MM）', 'Quiet start (HH:MM)')),
+        field('quietHours.end', t('免打扰结束（HH:MM）', 'Quiet end (HH:MM)')),
       ] },
       { id: 'persona', label: t('人格配置', 'Persona files'), fields: [] },
       { id: 'stickers', label: t('表情管理', 'Stickers'), fields: [] },
@@ -290,6 +295,9 @@ window.__ModuleLoader__.load({
         field('includeSessionMemory', t('跨会话记忆', 'Cross-session memory'), 'boolean'),
         field('memoryPromptEntries', t('注入记忆条数', 'Memory entries per prompt'), 'number', { min: 0, max: 20 }),
         field('workspaceTitle', t('工作区名', 'Workspace name')),
+        field('adminPreset', t('管理员助理预设', 'Admin assistant preset'), 'text', {
+          help: t('管理员官方私聊个人助理使用的 DSH 预设，默认 standard（拥有完整读写与执行权限）。', 'DSH preset used by Admin ClawBot Personal Assistant (default: standard).'),
+        }),
         field('antiDetection.enabled', t('启用防检测拟人化', 'Enable anti-detection humanization'), 'boolean'),
         field('antiDetection.phraseTyping', t('模拟词组打字输入', 'Phrase-chunked typing'), 'boolean', {
           help: t('短句按 1~4 字词组节奏逐段输入，避免 100% 剪贴板粘贴特征；长段或链接自动粘贴。', 'Type short lines in 1-4 char phrase chunks instead of clipboard paste.'),
@@ -302,6 +310,9 @@ window.__ModuleLoader__.load({
         }),
         field('antiDetection.minimalTouch', t('最小化窗口触碰', 'Minimize window touches'), 'boolean', {
           help: t('通知已有完整正文时不唤醒微信窗口，目标已在前台时不重复置顶。', 'Avoid touching WeChat windows on wake unless screen read is needed.'),
+        }),
+        field('desktopRpaEnabled', t('启用桌面微信桥接', 'Enable desktop WeChat bridge'), 'boolean', {
+          help: t('开启后在面板显示本地桌面微信（群聊/窗口预览/防截屏/表情采集）配置项。', 'Show desktop WeChat client bridge options (group chats, preview, stickers).'),
         }),
       ] },
     ]
@@ -324,35 +335,61 @@ window.__ModuleLoader__.load({
       const input = useRef(null)
       const pending = useRef(null)
       const [preview, setPreview] = useState(null)
+      const [editing, setEditing] = useState(false)
+      const [editText, setEditText] = useState('')
       const [loading, setLoading] = useState(false)
       const [error, setError] = useState('')
       useEffect(() => () => pending.current?.abort(), [])
-      useEffect(() => { setPreview(null) }, [draft])
+      useEffect(() => {
+        if (!draft) {
+          setPreview(null)
+          setEditing(false)
+        }
+      }, [draft])
 
-      async function showPreview() {
-        if (preview !== null) return setPreview(null)
+      async function loadDoc() {
         const requestController = new AbortController()
         pending.current = requestController
         setLoading(true)
         setError('')
         try {
           const file = await request('/documents/' + fileKey, { signal: requestController.signal })
-          if (!requestController.signal.aborted) setPreview(file.text)
+          return requestController.signal.aborted ? null : file.text
         } catch (failure) {
           if (!requestController.signal.aborted) setError(failure.message)
+          return null
         } finally {
           if (!requestController.signal.aborted) setLoading(false)
+        }
+      }
+
+      async function showPreview() {
+        if (preview !== null) return setPreview(null)
+        setEditing(false)
+        const doc = draft?.text ?? (await loadDoc())
+        if (doc !== null) setPreview(doc)
+      }
+
+      async function toggleEdit() {
+        if (editing) return setEditing(false)
+        setPreview(null)
+        const doc = draft?.text ?? (available ? await loadDoc() : '')
+        if (doc !== null) {
+          setEditText(doc)
+          setEditing(true)
         }
       }
 
       return h('div', { className: cls('document') },
         h('div', { className: cls('list-row') },
           h('div', null, h('strong', null, name),
-            draft ? hint(t('待替换 · ', 'Pending replacement · ') + draft.name)
+            draft ? hint(t('待保存修改 · ', 'Unsaved changes · ') + draft.name)
               : !available && hint(t('文件未创建', 'File has not been created'))),
-          actions(button(loading ? t('正在打开…', 'Opening…') : preview === null ? t('预览', 'Preview') : t('收起预览', 'Close preview'),
-            showPreview, { disabled: loading || !available, pressed: preview !== null }),
-          button(t('替换', 'Replace'), () => input.current?.click(), { disabled: !canReplace || busy }))),
+          actions(
+            button(editing ? t('收起编辑', 'Close editor') : t('编辑', 'Edit'), toggleEdit, { disabled: loading || !canReplace || busy, pressed: editing }),
+            button(loading ? t('正在打开…', 'Opening…') : preview === null ? t('预览', 'Preview') : t('收起预览', 'Close preview'),
+              showPreview, { disabled: loading || !available, pressed: preview !== null }),
+            button(t('导入替换', 'Upload'), () => input.current?.click(), { disabled: !canReplace || busy }))),
         h('input', { ref: input, type: 'file', hidden: true, accept: '.md,.markdown', onChange: async (event) => {
           const file = event.target.files?.[0]
           event.target.value = ''
@@ -360,18 +397,31 @@ window.__ModuleLoader__.load({
           try {
             if (!/\.(md|markdown)$/i.test(file.name) || file.size > 512 * 1024) throw new Error(t('请选择 512 KB 以内的 Markdown 文件。', 'Choose a Markdown file up to 512 KB.'))
             const text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
+            setEditing(false)
             onReplace({ name: file.name, text })
             setError('')
           } catch (failure) { setError(failure.message) }
         } }),
         error && h('p', { className: cls('error'), role: 'alert' }, error),
+        editing && h('textarea', {
+          value: editText,
+          rows: 14,
+          disabled: !canReplace || busy,
+          style: { width: '100%', marginTop: '8px', fontFamily: 'monospace' },
+          onChange: (event) => {
+            const next = event.target.value
+            setEditText(next)
+            onReplace({ name, text: next })
+          },
+        }),
         preview !== null && h('pre', { className: cls('document-preview'), tabIndex: 0, 'aria-label': name },
           preview || t('文件为空', 'This file is empty')))
     }
 
-    function Settings({ status, onSave, run, busy, drafts, setDrafts, selectedTarget, section, setSection }) {
+    function Settings({ status, onSave, run, busy, drafts, setDrafts, selectedTarget, section, setSection, showDesktopRpa }) {
       const [fileError, setFileError] = useState('')
-      const group = groups.find((item) => item.id === section) ?? groups[0]
+      const visibleGroups = showDesktopRpa ? groups : groups.filter((item) => !['sources', 'stickers'].includes(item.id))
+      const group = visibleGroups.find((item) => item.id === section) ?? visibleGroups[0]
       const value = ({ key, type }) => drafts[key] ?? displayValue(settingsValue(status.settings, key), type)
       const update = (key, next) => setDrafts((prev) => ({ ...prev, [key]: next }))
       const changed = groups.flatMap((item) => item.fields).filter(({ key, type }) => Object.hasOwn(drafts, key)
@@ -437,15 +487,37 @@ window.__ModuleLoader__.load({
             draft: drafts['documents.' + key], canReplace: status.canEdit, busy,
             onReplace: (file) => update('documents.' + key, file) })))
 
-      const advancedFields = group.id === 'advanced' && h('div', { className: cls('stack') },
-        h('div', { className: cls('fields') }, ...group.fields.slice(0, 7).map((item) => renderField(item))),
+      const desktopReplyKeys = new Set(['atKeywords', 'proactiveReplyProbability', 'replyCooldownSeconds', 'mentionMergeSeconds'])
+      const replyFields = group.id === 'reply' && h('div', { className: cls('stack') },
+        h('div', { className: cls('fields') },
+          ...group.fields.filter((item) => !item.key.startsWith('replyDelay') && !item.key.startsWith('quietHours.')
+            && (showDesktopRpa || !desktopReplyKeys.has(item.key))).map((item) => renderField(item))),
+        h('fieldset', { className: cls('field-wide delay') },
+          h('legend', null, t('发送信息延时（秒）', 'Send delay (seconds)')),
+          h('div', { className: cls('fields') },
+            ...group.fields.filter((item) => item.key.startsWith('replyDelay')).map((item) => renderField(item)))),
         h('div', { className: cls('setting-block') },
+          h('h4', null, t('免打扰时段', 'Quiet hours')),
+          hint(t('在设定的作息时段内暂停主动接话（仅影响非管理员聊天）。', 'Pause non-admin proactive replies during quiet hours.')),
+          renderField(group.fields.find((item) => item.key === 'quietHours.enabled')),
+          h('div', { className: cls('fields') },
+            ...group.fields.filter((item) => item.key.startsWith('quietHours.') && item.key !== 'quietHours.enabled')
+              .map((item) => renderField(item, !value(group.fields.find((f) => f.key === 'quietHours.enabled')))))))
+
+      const antiEnabled = group.fields.find((item) => item.key === 'antiDetection.enabled')
+      const advancedFields = group.id === 'advanced' && h('div', { className: cls('stack') },
+        h('div', { className: cls('fields') },
+          ...group.fields.filter((item) => !item.key.startsWith('antiDetection.') && item.key !== 'desktopRpaEnabled').map((item) => renderField(item))),
+        showDesktopRpa && h('div', { className: cls('setting-block') },
           h('h4', null, t('防检测', 'Anti-detection')),
           hint(t('模拟真人输入习惯与运动轨迹，降低微信客户端对自动化脚本的行为特征识别风险。',
             'Simulate human typing, trajectories, and cadence to reduce WeChat client bot-detection risk.')),
-          renderField(group.fields[7]),
+          renderField(antiEnabled),
           h('div', { className: cls('fields') },
-            ...group.fields.slice(8).map((item) => renderField(item, !value(group.fields[7]))))))
+            ...group.fields.filter((item) => item.key.startsWith('antiDetection.') && item.key !== 'antiDetection.enabled')
+              .map((item) => renderField(item, !value(antiEnabled))))),
+        h('div', { className: cls('setting-block') },
+          renderField(group.fields.find((item) => item.key === 'desktopRpaEnabled'))))
 
       return h('form', { className: cls('settings stack'), onSubmit: submit, noValidate: true },
         h('div', { className: cls('toolbar save') }, title(t('机器人设置', 'Bot settings')),
@@ -458,15 +530,10 @@ window.__ModuleLoader__.load({
         fileError && h('p', { role: 'alert', className: cls('error') }, fileError),
         h('div', { className: cls('settings-layout') },
           h('nav', { className: cls('settings-nav'), 'aria-label': t('设置分类', 'Settings categories') },
-            ...groups.map((item) => button(item.label, () => setSection(item.id), { key: item.id, pressed: item.id === group.id }))),
+            ...visibleGroups.map((item) => button(item.label, () => setSection(item.id), { key: item.id, pressed: item.id === group.id }))),
           h('div', { className: cls('stack') },
             group.id !== 'stickers' && h('fieldset', { className: cls('card'), disabled: group.id !== 'persona' && (busy || !status.canEdit) },
-              title(group.label), sourceFields || personaFields || advancedFields ||
-                h('div', { className: cls('fields') },
-                  ...group.fields.filter((item) => !item.key.startsWith('replyDelay')).map((item) => renderField(item)),
-                  group.id === 'reply' && h('fieldset', { className: cls('field-wide delay') },
-                    h('legend', null, t('发送信息延时（秒）', 'Send delay (seconds)')),
-                    h('div', { className: cls('fields') }, ...group.fields.slice(-2).map((item) => renderField(item)))))),
+              title(group.label), sourceFields || personaFields || replyFields || advancedFields),
             group.id === 'stickers' && h(Stickers, { status, run, busy, selectedTarget }))))
     }
 
@@ -630,7 +697,7 @@ window.__ModuleLoader__.load({
           row.error && h('span', { className: cls('error') }, row.error))))
     }
 
-    function Targets({ status, selected, select, run, busy }) {
+    function Targets({ status, selected, select, run, busy, showDesktopRpa }) {
       const [draft, setDraft] = useState(null)
       const [name, setName] = useState('')
       const [mode, setMode] = useState('group')
@@ -640,11 +707,11 @@ window.__ModuleLoader__.load({
       const [qr, setQr] = useState(null)
       const [verifyCode, setVerifyCode] = useState('')
       const [error, setError] = useState('')
-      const qrMetaRef = useRef({ label: '', targetIndex: null })
+      const qrMetaRef = useRef({ label: '', role: 'chat', workspacePath: '', targetIndex: null })
       const rows = draft ?? status.targets
-      const serializeTargets = (list) => list.map(({ name: itemName, mode: itemMode, accountId, userId }) =>
+      const serializeTargets = (list) => list.map(({ name: itemName, mode: itemMode, accountId, userId, role, workspacePath }) =>
         itemMode === 'clawbot'
-          ? { name: itemName, mode: 'clawbot', accountId, ...(userId ? { userId } : {}) }
+          ? { name: itemName, mode: 'clawbot', accountId, role: role || 'chat', ...(workspacePath ? { workspacePath } : {}), ...(userId ? { userId } : {}) }
           : { name: itemName, mode: itemMode })
       const defaultClawbotName = () => {
         const base = t('官方私聊', 'ClawBot 私聊')
@@ -676,12 +743,14 @@ window.__ModuleLoader__.load({
         setVerifyCode('')
         const existing = rebindIndex != null ? rows[rebindIndex] : null
         const initialLabel = existing?.name || defaultClawbotName()
-        qrMetaRef.current = { label: initialLabel, targetIndex: rebindIndex }
+        const initialRole = existing?.role || 'chat'
+        const initialWs = existing?.workspacePath || ''
+        qrMetaRef.current = { label: initialLabel, role: initialRole, workspacePath: initialWs, targetIndex: rebindIndex }
         try {
           const res = await request('/ilink/login/start', {
             body: { accountId: existing?.accountId || '', force: true },
           })
-          setQr({ ...res, targetIndex: rebindIndex, label: initialLabel })
+          setQr({ ...res, targetIndex: rebindIndex, label: initialLabel, role: initialRole, workspacePath: initialWs })
         } catch (failure) {
           setError(failure.message)
         }
@@ -717,14 +786,14 @@ window.__ModuleLoader__.load({
             if (active.signal.aborted) return
             setQr((prev) => (prev && prev.sessionKey === next.sessionKey ? { ...prev, ...next } : prev))
             if (next.connected && next.accountId) {
-              const { label, targetIndex } = qrMetaRef.current
+              const { label, role, workspacePath, targetIndex } = qrMetaRef.current
               const baseRows = draft ?? status.targets
               const finalName = (label || '').trim() || defaultClawbotName()
               const nextRows = targetIndex != null
                 ? baseRows.map((row, idx) => idx === targetIndex
                   ? { ...row, accountId: next.accountId, userId: next.userId || row.userId || '' }
                   : row)
-                : [...baseRows, { name: finalName, mode: 'clawbot', accountId: next.accountId, userId: next.userId || '' }]
+                : [...baseRows, { name: finalName, mode: 'clawbot', role: role || 'chat', workspacePath: workspacePath || '', accountId: next.accountId, userId: next.userId || '' }]
               const saved = await run('/settings', { targets: serializeTargets(nextRows) }, t('已绑定并保存官方私聊通道', 'Official ClawBot channel bound and saved'))
               if (saved) {
                 setDraft(null)
@@ -744,13 +813,14 @@ window.__ModuleLoader__.load({
       const modeSelect = (value, onChange) => h('select', { 'aria-label': t('聊天模式', 'Chat mode'), value,
         onChange: (event) => onChange(event.target.value) },
       h('option', { value: 'group' }, t('群聊', 'Group')), h('option', { value: 'private' }, t('私聊', 'Private')))
-      const modeBadge = (itemMode) => itemMode === 'clawbot'
-        ? t('官方私聊', 'ClawBot')
-        : itemMode === 'private' ? t('私聊', 'Private') : t('群聊', 'Group')
+      const modeBadge = (row) => row.mode === 'clawbot'
+        ? (row.role === 'admin' ? t('官方私聊 · 管理员', 'ClawBot · Admin') : t('官方私聊', 'ClawBot'))
+        : row.mode === 'private' ? t('私聊', 'Private') : t('群聊', 'Group')
 
       return h('section', { className: cls('card chat-config stack') },
         h('div', { className: cls('toolbar') }, title(t('聊天配置', 'Chat targets')), hint(rows.length + ' / 10')),
-        !rows.length && hint(t('尚未配置聊天', 'No chats configured')),
+        !rows.length && hint(t('点击下方「扫码添加官方私聊」绑定微信对话', 'Click "Scan QR for ClawBot" below to bind a WeChat chat')),
+        h('datalist', { id: P + 'workspaces' }, ...(status.workspaces || []).map((w) => h('option', { key: w.id, value: w.path }, w.title))),
         h('div', { className: cls('list') }, ...rows.map((row, index) => {
           const live = status.targets.find((item) => item.id === row.id)
           const isClawbot = row.mode === 'clawbot'
@@ -760,11 +830,23 @@ window.__ModuleLoader__.load({
           return h('div', { className: cls('list-row'), key: row.id ?? index },
             row.editing ? actions(
               h('input', { 'aria-label': t('聊天名称', 'Chat name'), value: row.name, onChange: (event) => edit(index, { name: event.target.value }) }),
-              isClawbot ? hint('【' + modeBadge(row.mode) + '】') : modeSelect(row.mode, (value) => edit(index, { mode: value })))
+              isClawbot
+                ? actions(
+                  h('label', { className: cls('switch') },
+                    h('input', { type: 'checkbox', checked: row.role === 'admin', onChange: (event) => edit(index, { role: event.target.checked ? 'admin' : 'chat' }) }),
+                    t('设为管理员（远程遥控）', 'Admin remote')),
+                  row.role === 'admin' && h('input', {
+                    list: P + 'workspaces',
+                    placeholder: t('默认工作区路径（选填）', 'Default workspace path (optional)'),
+                    value: row.workspacePath || '',
+                    onChange: (event) => edit(index, { workspacePath: event.target.value }),
+                  }))
+                : modeSelect(row.mode, (value) => edit(index, { mode: value })))
               : h('div', { className: cls('target-name') },
-                button(row.name + '【' + modeBadge(row.mode) + '】', () => select(row.id),
+                button(row.name + '【' + modeBadge(row) + '】', () => select(row.id),
                   { disabled: !live, pressed: selected === row.id }),
-                h('span', { className: cls('status'), 'data-ready': String(Boolean(live?.ready)) }, readyLabel)),
+                h('span', { className: cls('status'), 'data-ready': String(Boolean(live?.ready)) }, readyLabel),
+                isClawbot && live?.role === 'admin' && hint(live.devMode ? t('开发者直连', 'Dev mode') : (live.windowActive ? t('24h 推送可用', '24h active') : t('发消息激活 24h 窗口', 'Msg to activate 24h')))),
             hint(t('待处理 ', 'Pending ') + (live?.pending ?? 0)),
             actions(
               isClawbot
@@ -775,11 +857,11 @@ window.__ModuleLoader__.load({
               button(t('移除', 'Remove'), () => setDraft(rows.filter((_, i) => i !== index)), { disabled: busy || !status.canEdit })))
         })),
         h('div', { className: cls('toolbar') }, actions(
-          h('input', { 'aria-label': t('添加聊天', 'Add a chat'), placeholder: t('输入完整聊天名', 'Enter the full chat name'), value: name,
+          showDesktopRpa && h('input', { 'aria-label': t('添加聊天', 'Add a chat'), placeholder: t('输入完整聊天名', 'Enter the full chat name'), value: name,
             onChange: (event) => setName(event.target.value) }),
-          modeSelect(mode, setMode),
-          button(t('添加', 'Add'), () => add([name.trim()]), { disabled: !name.trim() || rows.length >= 10 || busy || !status.canEdit }),
-          button(finding ? t('查找中…', 'Searching…') : t('查找微信聊天', 'Find WeChat chats'), find, { disabled: finding || busy || rows.length >= 10 || !status.canEdit }),
+          showDesktopRpa && modeSelect(mode, setMode),
+          showDesktopRpa && button(t('添加', 'Add'), () => add([name.trim()]), { disabled: !name.trim() || rows.length >= 10 || busy || !status.canEdit }),
+          showDesktopRpa && button(finding ? t('查找中…', 'Searching…') : t('查找微信聊天', 'Find WeChat chats'), find, { disabled: finding || busy || rows.length >= 10 || !status.canEdit }),
           button(t('扫码添加官方私聊', 'Scan QR for ClawBot'), () => startQr(null), { disabled: Boolean(qr && !qr.done) || rows.length >= 10 || busy || !status.canEdit, tone: 'primary' })),
         draft && actions(button(t('取消', 'Cancel'), () => { setDraft(null); setError('') }, { disabled: busy }),
           button(t('保存聊天', 'Save chats'), async () => {
@@ -792,17 +874,30 @@ window.__ModuleLoader__.load({
             actions(
               button(t('刷新二维码', 'Refresh QR'), () => startQr(qr.targetIndex), { disabled: busy }),
               button(t('取消扫码', 'Cancel'), cancelQr, { disabled: busy }))),
-          qr.targetIndex == null && h('div', { className: cls('field') },
-            h('label', null, t('对话名称', 'Chat display name')),
-            h('input', {
-              value: qr.label ?? '',
-              placeholder: t('如：主人私聊', 'e.g. Personal ClawBot'),
-              onChange: (event) => {
-                const nextLabel = event.target.value
-                qrMetaRef.current.label = nextLabel
-                setQr((prev) => (prev ? { ...prev, label: nextLabel } : prev))
-              },
-            })),
+          qr.targetIndex == null && h('div', { className: cls('fields') },
+            h('div', { className: cls('field') },
+              h('label', null, t('对话名称', 'Chat display name')),
+              h('input', {
+                value: qr.label ?? '',
+                placeholder: t('如：主人私聊', 'e.g. Personal ClawBot'),
+                onChange: (event) => {
+                  const nextLabel = event.target.value
+                  qrMetaRef.current.label = nextLabel
+                  setQr((prev) => (prev ? { ...prev, label: nextLabel } : prev))
+                },
+              })),
+            h('div', { className: cls('field') },
+              h('label', { className: cls('switch') },
+                h('input', {
+                  type: 'checkbox',
+                  checked: qr.role === 'admin',
+                  onChange: (event) => {
+                    const nextRole = event.target.checked ? 'admin' : 'chat'
+                    qrMetaRef.current.role = nextRole
+                    setQr((prev) => (prev ? { ...prev, role: nextRole } : prev))
+                  },
+                }),
+                t('绑定为管理员（远程遥控 DSH 与双向文件传输）', 'Bind as Admin (DSH remote control & files)')))),
           qr.qrImage && h('img', { src: qr.qrImage, alt: t('微信官方 ClawBot 登录二维码', 'WeChat ClawBot QR code'), style: { width: '188px', height: '188px', borderRadius: '8px', border: '1px solid var(--wb-border)' } }),
           h('p', { className: qr.status === 'error' ? cls('error') : cls('muted'), role: 'status' }, qr.message),
           qr.qrcodeUrl && hint(t('备用链接：', 'QR URL: ') + qr.qrcodeUrl),
@@ -826,11 +921,12 @@ window.__ModuleLoader__.load({
         error && h('p', { className: cls('error'), role: 'alert' }, error))
     }
 
-    function Overview({ status, busy, run, selected, select }) {
+    function Overview({ status, busy, run, selected, select, showDesktopRpa }) {
       const target = status.targets.find((item) => item.id === selected)
         ?? status.targets.find((item) => item.ready) ?? status.targets[0]
       const totals = [[t('今日收到', 'Received today'), status.totals.received],
         [t('发送提交', 'Submitted'), status.totals.submitted], [t('发送失败', 'Failed'), status.totals.failed]]
+      const adminTarget = status.targets.find((item) => item.mode === 'clawbot' && item.role === 'admin')
       return h('div', { className: cls('grid') },
         h('section', { className: cls('card stack') },
           title(t('运行概况', 'Activity overview')),
@@ -843,18 +939,34 @@ window.__ModuleLoader__.load({
               h('time', { dateTime: new Date(row.at).toISOString() }, new Date(row.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))),
             row.thumbnail && h('img', { src: row.thumbnail, alt: row.content }),
             h('p', null, row.content)))),
-        h(Preview, {
-          key: (target?.id ?? 'main') + ':' + status.connected,
-          connected: status.connected,
-          target,
-          captureProtected: Boolean(status.settings?.captureProtected ?? status.captureProtected),
-          windowCaptureProtected: status.windowCaptureProtected === true,
-          canEdit: status.canEdit,
-          busy,
-          onToggleCaptureProtected: (next) => run('/settings', { captureProtected: next },
-            next ? t('已开启防截屏模式', 'Capture-protected mode enabled') : t('已关闭防截屏模式', 'Capture-protected mode disabled')),
-        }),
-        h(Targets, { status, selected: target?.id, select, run, busy }))
+        showDesktopRpa
+          ? h(Preview, {
+            key: (target?.id ?? 'main') + ':' + status.connected,
+            connected: status.connected,
+            target,
+            captureProtected: Boolean(status.settings?.captureProtected ?? status.captureProtected),
+            windowCaptureProtected: status.windowCaptureProtected === true,
+            canEdit: status.canEdit,
+            busy,
+            onToggleCaptureProtected: (next) => run('/settings', { captureProtected: next },
+              next ? t('已开启防截屏模式', 'Capture-protected mode enabled') : t('已关闭防截屏模式', 'Capture-protected mode disabled')),
+          })
+          : h('section', { className: cls('card stack') },
+            title(t('官方私聊通道与远程控制', 'ClawBot channel & remote')),
+            hint(t('采用微信官方 iLink Bot 协议，纯后台长轮询直连收发，支持文本、高清原图、语音转文字与双向文件传输。',
+              'Powered by the official WeChat iLink Bot protocol with zero desktop client dependency.')),
+            adminTarget && h('dl', { className: cls('detail') },
+              h('dt', null, t('管理员模式', 'Admin mode')),
+              h('dd', null, adminTarget.devMode ? t('开发者直连 Harness', 'Developer direct') : t('个人助理 Agent', 'Personal assistant')),
+              h('dt', null, t('当前工作区', 'Workspace')),
+              h('dd', null, adminTarget.workspacePath || status.agentDir),
+              h('dt', null, t('24h 主动窗口', '24h active window')),
+              h('dd', null, adminTarget.windowActive
+                ? t(`有效（剩余 ${adminTarget.windowRemainingMinutes ?? 0} 分钟）`, `Active (${adminTarget.windowRemainingMinutes ?? 0} min left)`)
+                : t('请在手机微信发送任意消息激活', 'Send a WeChat message to activate'))),
+            hint(t('手机微信常用指令：/status · /ws · /new · /compact · /stop · /schedules · /dev · /help',
+              'WeChat commands: /status · /ws · /new · /compact · /stop · /schedules · /dev · /help'))),
+        h(Targets, { status, selected: target?.id, select, run, busy, showDesktopRpa }))
     }
 
     function PanelBody() {
@@ -927,6 +1039,7 @@ window.__ModuleLoader__.load({
       }
       const busy = Boolean(operation)
       const running = status?.detector?.running
+      const showDesktopRpa = Boolean(status?.settings?.desktopRpaEnabled || status?.targets?.some((item) => item.mode !== 'clawbot'))
       const statusLabel = status
         ? running ? t('运行中', 'Running') : t('已停止', 'Stopped')
         : loading ? t('连接中', 'Connecting') : t('状态不可用', 'Status unavailable')
@@ -943,7 +1056,7 @@ window.__ModuleLoader__.load({
             h('span', { className: cls('status'), 'data-running': String(Boolean(running)) }, statusLabel)),
           actions(
             button(t('刷新状态', 'Refresh status'), () => { setError(''); refresh() }, { disabled: loading || busy }),
-            running && button(t('立即巡检', 'Scan now'),
+            running && showDesktopRpa && button(t('立即巡检', 'Scan now'),
               () => run('/detector', { action: 'scan' }, t('巡检完成', 'Scan complete')),
               { disabled: busy || status.settings.ocrEnabled === false || (status.settings.captureProtected && status.platform !== 'win32') }),
             status && button(
@@ -957,8 +1070,8 @@ window.__ModuleLoader__.load({
           }, label))),
         error && h('div', { className: cls('banner error'), role: 'alert' }, error),
         notice && h('div', { className: cls('banner'), role: 'status' }, notice),
-        status && tab === 'overview' && h(Overview, { status, busy, run, selected: selectedTarget, select: setSelectedTarget }),
-        status && tab === 'settings' && h(Settings, { status, onSave: save, run, busy, drafts, setDrafts, selectedTarget, section: settingsSection, setSection: setSettingsSection }),
+        status && tab === 'overview' && h(Overview, { status, busy, run, selected: selectedTarget, select: setSelectedTarget, showDesktopRpa }),
+        status && tab === 'settings' && h(Settings, { status, onSave: save, run, busy, drafts, setDrafts, selectedTarget, section: settingsSection, setSection: setSettingsSection, showDesktopRpa }),
         status && tab === 'activity' && h(Activity, { run, busy }))
     }
 

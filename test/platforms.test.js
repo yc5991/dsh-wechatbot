@@ -12,7 +12,11 @@ import { MessageNotifier } from '../lib/notifier.js'
 import { parseClipboardTranscript } from '../lib/transcript.js'
 import { jitterComposerPoint, normalizeAntiDetection, shouldTypeViaKeyboard, splitTypingChunks } from '../lib/humanize.js'
 import { encodeQrMatrix, qrSvgDataUrl } from '../lib/qrcode-svg.js'
-import { decryptAesEcb, encryptAesEcb, IlinkLoginManager, IlinkStore, parseWeixinAesKey, parseWeixinJson } from '../lib/ilink.js'
+import { decryptAesEcb, encryptAesEcb, ILINK_ACTIVE_WINDOW_MS, IlinkLoginManager, IlinkStore, parseWeixinAesKey, parseWeixinJson } from '../lib/ilink.js'
+import { fallbackDragSelections } from '../lib/transcript.js'
+import { isInQuietHours, shouldReply } from '../lib/dedupe.js'
+import { ScheduleStore } from '../lib/schedules.js'
+import { MemoryStore } from '../lib/memory.js'
 
 test('defaults, multi-format clipboard parser, and anti-detection humanize primitives', () => {
   const defaults = Config({})
@@ -283,4 +287,41 @@ test('qrcode-svg generator, lossless uint64/AES helpers, and iLink QR login stat
   assert.equal(st.connected, true)
   assert.equal(st.accountId, 'bot01-im-bot')
   assert.equal(store.getAccount('bot01-im-bot').token, 'tok-xyz')
+
+  // v0.6.0 primitives: margin drag-copy, quiet hours, 24h window, quote cache, permanent notes, schedules
+  const region = { x: 100, y: 50, w: 600, h: 500 }
+  const sels = fallbackDragSelections(region)
+  assert.equal(sels.length, 2)
+  assert.ok(sels[0].x1 >= region.x + region.w * 0.90 && sels[0].y2 >= region.y + region.h * 0.94)
+  assert.ok(sels[1].x1 <= region.x + region.w * 0.08 && sels[1].y2 >= region.y + region.h * 0.92)
+
+  assert.equal(isInQuietHours(new Date(2026, 10, 26, 2, 30), { enabled: true, start: '01:00', end: '08:00' }), true)
+  assert.equal(isInQuietHours(new Date(2026, 10, 26, 14, 0), { enabled: true, start: '01:00', end: '08:00' }), false)
+  assert.equal(shouldReply({ sender: '甲', content: '夜聊' }, {
+    privateChat: false, proactiveProbability: 1, quietHours: { enabled: true, start: '01:00', end: '08:00', allowAt: true },
+    nowDate: new Date(2026, 10, 26, 3, 0),
+  }).reply, false)
+  assert.equal(shouldReply({ sender: '管理员', content: '醒来' }, {
+    privateChat: true, adminChat: true, quietHours: { enabled: true, start: '01:00', end: '08:00', allowAt: false },
+    nowDate: new Date(2026, 10, 26, 3, 0),
+  }).reply, true)
+
+  const now = Date.now()
+  store.setContextToken('bot01-im-bot', 'usr01@im.wechat', 'ctx-fresh', now - 1000)
+  assert.equal(store.activeWindowStatus('bot01-im-bot', 'usr01@im.wechat', now).active, true)
+  assert.equal(store.activeWindowStatus('bot01-im-bot', 'usr01@im.wechat', now + ILINK_ACTIVE_WINDOW_MS + 1000).active, false)
+  store.saveQuote('bot01-im-bot', 'svr-777', { direction: 'outbound', body: '上一条报价单' })
+  assert.equal(store.findQuote('bot01-im-bot', 'svr-777').body, '上一条报价单')
+
+  const mem = new MemoryStore({ dir: join(dir, 'mem'), maxEntries: 1 })
+  mem.appendNote('每天早上提醒看 CI')
+  mem.append('闲聊 1', '2026-11-26 10:00')
+  mem.append('闲聊 2', '2026-11-26 10:05')
+  assert.match(mem.contextForPrompt({ entries: 0, includeNotes: true }), /每天早上提醒看 CI/)
+
+  const sched = new ScheduleStore(dir)
+  const job = sched.add({ targetId: 't1', accountId: 'bot01-im-bot', label: '早安', kind: 'once', runAt: now - 1000 })
+  assert.equal(sched.dueJobs(now).length, 1)
+  sched.markTriggered(job.id, now)
+  assert.equal(sched.dueJobs(now).length, 0)
 })

@@ -66,6 +66,7 @@ function createHarness(config, { withSystemPrompt = false, controllerOverrides =
   }
   const editor = { entries: () => [{ options: { id: 'dsh-wechatbot' } }], edit: async (_e, fn) => fn(config) }
   const tools = new Map()
+  const toolMeta = new Map()
   const listeners = new Map()
   const cleanup = []
   let panel
@@ -76,7 +77,7 @@ function createHarness(config, { withSystemPrompt = false, controllerOverrides =
     on: withSystemPrompt ? (ev, fn) => { listeners.set(ev, fn); return () => listeners.delete(ev) } : undefined,
     effect: (fn) => { const end = fn(); if (typeof end === 'function') cleanup.push(end) },
     inject: (_k, fn) => fn(ctx),
-    tools: { register: (tool) => tools.set(tool.name, tool) },
+    tools: { register: (tool, meta) => { tools.set(tool.name, tool); toolMeta.set(tool.name, meta) } },
     webServer: { register: (route) => { panel = route } },
   }
   apply(ctx, config)
@@ -93,9 +94,10 @@ function createHarness(config, { withSystemPrompt = false, controllerOverrides =
   }
   const callTool = async (name, args, sessionId) =>
     JSON.parse(await tools.get(name).execute(args, { agent: { id: sessionId } }))
+  const toolVisible = (name, sessionId) => toolMeta.get(name)?.when?.({ agent: { id: sessionId } }) ?? true
   const waitNextPrompt = () => new Promise((resolve) => { onPrompt = resolve })
   const disposeAll = () => { for (const fn of cleanup) fn() }
-  return { workspace, registry, prompts, listeners, request, callTool, waitNextPrompt, disposeAll }
+  return { workspace, registry, prompts, listeners, request, callTool, toolVisible, waitNextPrompt, disposeAll }
 }
 
 test('targets config migration, memory per-chat scoping, and sticker catalog deduplication/labeling', async (t) => {
@@ -521,5 +523,174 @@ test('headless clawbot QR bind, typing indicator, AES image inbound/sticker outb
     await harness.request('/detector', { action: 'stop' })
     harness.disposeAll()
     assert.ok(apiCalls.some((c) => c.url.includes('notifystop')))
+  }
+})
+
+test('admin dual-layer remote control, slash commands, bidirectional files, memory schedule, and empty-@ debounce', {
+  timeout: 12_000,
+}, async (t) => {
+  const home = withTempHome(t, 'dsh-admin-')
+  t.mock.property(process, 'platform', 'darwin')
+  t.mock.method(MacOSWeChatClient.prototype, 'isRunning', async () => false)
+
+  const fileKey = Buffer.from('00112233445566778899aabbccddeeff', 'hex')
+  const fileBuf = Buffer.from('console.log("hello remote")', 'utf8')
+  const encFile = encryptAesEcb(fileBuf, fileKey)
+  const storeDir = join(home, '.dsh', 'dsh-wechatbot')
+  const { IlinkStore } = await import('../lib/ilink.js')
+  const ilinkStore = new IlinkStore(storeDir)
+  ilinkStore.saveAccount({ rawBotId: 'adm@im.bot', token: 'adm-tok', userId: 'boss@im.wechat' })
+
+  const outSent = []
+  let pollIdx = 0
+  let devReply = '**已完成**：检查了 `index.js`'
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    const u = String(url)
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : null
+    if (u.includes('getupdates')) {
+      pollIdx += 1
+      if (pollIdx === 1) {
+        return new Response(JSON.stringify({
+          ret: 0,
+          get_updates_buf: 'b1',
+          msgs: [
+            { message_id: '101', from_user_id: 'intruder@im.wechat', message_type: 1, context_token: 'c-bad', item_list: [{ type: 1, text_item: { text: '/status' } }] },
+            { message_id: '102', from_user_id: 'boss@im.wechat', message_type: 1, context_token: 'c-adm', item_list: [
+              { type: 4, file_item: { file_name: 'report.txt', media: { encrypt_query_param: 'f1', aes_key: fileKey.toString('base64') } } },
+              { type: 1, text_item: { text: '帮我写到备忘并发个回执' } },
+            ] },
+          ],
+        }), { status: 200 })
+      }
+      if (pollIdx === 2) {
+        await sleep(30)
+        return new Response(JSON.stringify({
+          ret: 0, get_updates_buf: 'b2',
+          msgs: [{ message_id: '103', from_user_id: 'boss@im.wechat', message_type: 1, context_token: 'c-adm', item_list: [{ type: 1, text_item: { text: '/help' } }] }],
+        }), { status: 200 })
+      }
+      if (pollIdx === 3) {
+        await sleep(30)
+        return new Response(JSON.stringify({
+          ret: 0, get_updates_buf: 'b3',
+          msgs: [{ message_id: '104', from_user_id: 'boss@im.wechat', message_type: 1, context_token: 'c-adm', item_list: [{ type: 1, text_item: { text: '/dev on' } }] }],
+        }), { status: 200 })
+      }
+      if (pollIdx === 4) {
+        await sleep(30)
+        return new Response(JSON.stringify({
+          ret: 0, get_updates_buf: 'b4',
+          msgs: [{ message_id: '105', from_user_id: 'boss@im.wechat', message_type: 1, context_token: 'c-adm', item_list: [{ type: 1, text_item: { text: '直接帮我跑一下单测' } }] }],
+        }), { status: 200 })
+      }
+      await new Promise((resolve) => init.signal?.addEventListener('abort', resolve, { once: true }))
+      return new Response(JSON.stringify({ ret: 0, msgs: [] }), { status: 200 })
+    }
+    if (u.includes('encrypted_query_param=f1')) return new Response(encFile, { status: 200 })
+    if (u.includes('getuploadurl')) return new Response(JSON.stringify({ upload_full_url: 'https://novac2c.cdn.weixin.qq.com/c2c/up-file' }), { status: 200 })
+    if (u.includes('up-file')) return new Response('', { status: 200, headers: { 'x-encrypted-param': 'dl-out-file' } })
+    if (u.includes('sendmessage')) {
+      outSent.push(body.msg)
+      return new Response(JSON.stringify({ ret: 0, message_id: '999' }), { status: 200 })
+    }
+    return new Response(JSON.stringify({ ret: 0 }), { status: 200 })
+  })
+
+  const agentDir = join(home, 'admin-agent')
+  const projectWs = join(home, 'my-proj')
+  mkdirSync(projectWs, { recursive: true })
+  const config = {
+    agentDir,
+    targets: [
+      { name: '主人遥控', mode: 'clawbot', accountId: 'adm-im-bot', userId: 'boss@im.wechat', role: 'admin', workspacePath: projectWs },
+    ],
+    replyDelayMinSeconds: 0,
+    replyDelayMaxSeconds: 0,
+  }
+  let createdReqs = []
+  let harness
+  harness = createHarness(config, {
+    withSystemPrompt: true,
+    controllerOverrides: {
+      onCreate(req) { createdReqs.push(req) },
+      async wait({ sessionId }) {
+        await sleep(25)
+        const text = sessionId === 'session-1' ? '' : devReply
+        return { reason: 'idle', output: { records: [{ event: { type: 'assistant/message', data: { content: [{ type: 'text', text }] } } }] } }
+      },
+    },
+  })
+
+  try {
+    const firstWake = harness.waitNextPrompt()
+    await harness.request('/detector', { action: 'start' })
+    const p1 = await firstWake
+    assert.equal(p1.sessionId, 'session-1')
+    assert.equal(createdReqs[0].agentPreset, 'standard')
+    assert.match(p1.content[0].text, /report\.txt/)
+    assert.equal(readFileSync(join(projectWs, '.wechatbot-inbox', 'report.txt'), 'utf8'), 'console.log("hello remote")')
+
+    assert.equal(harness.toolVisible('wechat_send_file', 'session-1'), true)
+    assert.equal(harness.toolVisible('wechat_schedule', 'session-1'), true)
+    assert.equal(harness.toolVisible('wechat_notify_admin', 'external-dsh-session'), true)
+
+    assert.equal((await harness.callTool('wechat_memory', { action: 'note', text: '以后早上问好' }, 'session-1')).ok, true)
+    assert.equal((await harness.callTool('wechat_schedule', { action: 'add', label: '早安问候', kind: 'daily', time: '09:00' }, 'session-1')).ok, true)
+    const outFile = join(projectWs, 'summary.txt')
+    writeFileSync(outFile, 'done', 'utf8')
+    assert.equal((await harness.callTool('wechat_send_file', { path: 'summary.txt' }, 'session-1')).ok, true)
+    assert.equal((await harness.callTool('wechat_notify_admin', { text: '后台编译完成' }, 'external-dsh-session')).ok, true)
+
+    const devWake = harness.waitNextPrompt()
+    const p2 = await devWake
+    assert.equal(p2.sessionId, 'session-2')
+    assert.equal(p2.content[0].text, '直接帮我跑一下单测')
+    assert.equal(harness.toolVisible('wechat_schedule', 'session-2'), false)
+    assert.equal(harness.toolVisible('wechat_send_file', 'session-2'), true)
+    const assemble = harness.listeners.get('system-prompt/assemble')
+    const devSys = await assemble(null, { agent: { id: 'session-2' } }, async () => ({ sections: [{ name: 'persona', text: 'raw-harness' }] }))
+    assert.equal(devSys.sections[0].text, 'raw-harness')
+
+    for (let i = 0; i < 30 && !outSent.some((m) => m.item_list?.[0]?.text_item?.text?.includes('已完成：检查了')); i += 1) {
+      await sleep(20)
+    }
+    assert.ok(outSent.some((m) => m.item_list?.[0]?.text_item?.text?.includes('/dev')))
+    assert.ok(outSent.some((m) => m.item_list?.[0]?.file_item?.file_name === 'summary.txt'))
+    assert.ok(outSent.some((m) => m.item_list?.[0]?.text_item?.text === '后台编译完成'))
+    assert.ok(outSent.some((m) => m.item_list?.[0]?.text_item?.text?.includes('已完成：检查了')))
+    assert.ok(!outSent.some((m) => m.to_user_id === 'intruder@im.wechat'))
+  } finally {
+    await harness.request('/detector', { action: 'stop' })
+    harness.disposeAll()
+  }
+})
+
+test('desktop empty-@ 3.5s debounce merges follow-up content into a single wake turn', async (t) => {
+  const home = withTempHome(t, 'dsh-debounce-')
+  t.mock.property(process, 'platform', 'darwin')
+  let detector
+  t.mock.method(DetectorService.prototype, 'start', async function () { detector = this; this.baselineDone = true })
+  t.mock.method(DetectorService.prototype, 'stop', async () => ({ running: false }))
+
+  const harness = createHarness({
+    agentDir: join(home, 'agent'),
+    targets: [{ name: '水群', mode: 'group' }],
+    mentionMergeSeconds: 0.25,
+    captureProtected: true,
+    dragCopyEnabled: false,
+    attachScreenshot: false,
+  })
+  try {
+    await harness.request('/detector', { action: 'start' })
+    const wake = harness.waitNextPrompt()
+    detector.enqueue([{ groupName: '水群', sender: '老王', content: '', isAtMe: true, needsOcr: true }], 'notification')
+    await sleep(60)
+    assert.equal(harness.prompts.length, 0)
+    detector.enqueue([{ groupName: '水群', sender: '老王', content: '扎啤走起', isAtMe: false }], 'notification')
+    const p = await wake
+    assert.match(p.content[0].text, /通知未提供正文[\s\S]*扎啤走起/)
+  } finally {
+    await harness.request('/detector', { action: 'stop' })
+    harness.disposeAll()
   }
 })

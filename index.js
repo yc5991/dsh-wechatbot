@@ -22,6 +22,7 @@ import { MessageNotifier, mentionsBot } from './lib/notifier.js'
 import { MessageDedupe, shouldReply } from './lib/dedupe.js'
 import { MemoryStore } from './lib/memory.js'
 import { SessionManager } from './lib/sessions.js'
+import { ScheduleStore } from './lib/schedules.js'
 import { scanForInjection, looksLikeInjection } from './lib/injection.js'
 import { QuotaTracker, stateDir } from './lib/quota.js'
 import { DetectorService } from './lib/detector.js'
@@ -36,6 +37,7 @@ import { IlinkBridge, IlinkLoginManager, IlinkStore } from './lib/ilink.js'
 export const inject = ['tools']
 
 const MODEL_TOOLS = new Set(['wechat_read', 'wechat_send', 'wechat_send_many', 'wechat_stickers', 'wechat_send_image'])
+const ADMIN_PA_TOOLS = new Set(['wechat_memory', 'wechat_schedule'])
 const PANEL_PATH = '/dsh-wechatbot/api'
 const TEMPLATE_DIR = fileURLToPath(new URL('./agent/template/', import.meta.url))
 let screenQueue = Promise.resolve()
@@ -71,7 +73,27 @@ export const Config = Schema.object({
     mode: Schema.union(['group', 'private', 'clawbot']).default('group'),
     accountId: Schema.string().default(''),
     userId: Schema.string().default(''),
+    role: Schema.union(['chat', 'admin']).default('chat'),
+    workspacePath: Schema.string().default(''),
   })).max(10), Schema.const(null)]).default(null),
+  desktopRpaEnabled: Schema.boolean()
+    .description('启用桌面微信桥接（支持本地桌面微信群聊/私聊窗口操作）。')
+    .default(false),
+  adminPreset: Schema.string()
+    .description('管理员官方私聊个人助理模式的 Agent 预设（默认 standard，具备完整本机操作能力）。')
+    .default('standard'),
+  mentionMergeSeconds: Schema.number()
+    .description('收到空 @ 通知后等待合并后续消息的秒数（防截屏与连发聚合，0 关闭）。')
+    .min(0).max(15)
+    .default(3.5),
+  quietHours: Schema.object({
+    enabled: Schema.boolean().description('开启免打扰时段').default(false),
+    start: Schema.string().description('开始时间（HH:MM）').default('01:00'),
+    end: Schema.string().description('结束时间（HH:MM）').default('08:00'),
+    allowAt: Schema.boolean().description('免打扰期间仍响应被 @ 的消息').default(true),
+  })
+    .description('群聊/普通私聊免打扰作息时段（不影响管理员远程通道）。')
+    .default({}),
   captureProtected: Schema.boolean()
     .description('防截屏模式：开启后跳过窗口截图、OCR 与输入框图像核对，仅使用独立窗口标题校验与无像素拖选收发。')
     .default(false),
@@ -235,6 +257,15 @@ export function apply(ctx, config = {}) {
     maxTurnsPerSession: Math.max(0, Number(activeConfig.maxTurnsPerSession ?? 30)),
     systemPersonaInjection: activeConfig.systemPersonaInjection !== false,
     antiDetection: normalizeAntiDetection(activeConfig.antiDetection),
+    desktopRpaEnabled: activeConfig.desktopRpaEnabled === true,
+    adminPreset: activeConfig.adminPreset || 'standard',
+    mentionMergeSeconds: Math.max(0, Math.min(15, Number(activeConfig.mentionMergeSeconds ?? 3.5))),
+    quietHours: {
+      enabled: activeConfig.quietHours?.enabled === true,
+      start: String(activeConfig.quietHours?.start || '01:00'),
+      end: String(activeConfig.quietHours?.end || '08:00'),
+      allowAt: activeConfig.quietHours?.allowAt !== false,
+    },
     replyCooldownSeconds: activeConfig.replyCooldownSeconds ?? 90,
     dragCopyEnabled: activeConfig.dragCopyEnabled !== false,
     ocrEnabled: activeConfig.captureProtected !== true && activeConfig.ocrEnabled !== false,
@@ -286,11 +317,33 @@ export function apply(ctx, config = {}) {
     fingerprints: async (items) => new NativeStickerPicker(await ensureClient()).fingerprints(items),
   })
   const stickerLabelSessions = new Set()
+  const devModeSessions = new Set()
+  const turnSentCounts = new Map()
   let stickerLabelJob = null
-  const chats = new Map(targets.map((target) => [target.id, {
-    ...target, client: null, sessions: null, pending: [], queue: Promise.resolve(),
-    dedupe: new MessageDedupe(), selfEcho: new Map(), lastSpeechAt: 0, scanBaselined: false,
-  }]))
+  const scheduleStore = new ScheduleStore(stateDir())
+  let scheduleTimer = null
+  let desktopPaused = false
+
+  function makeChatState(target) {
+    const state = {
+      ...target,
+      client: null,
+      sessions: null,
+      pending: [],
+      queue: Promise.resolve(),
+      dedupe: new MessageDedupe(),
+      selfEcho: new Map(),
+      lastSpeechAt: 0,
+      scanBaselined: false,
+      devMode: false,
+      activeWorkspacePath: target.workspacePath || '',
+      mentionTimer: null,
+      resolveInboxDir: () => join(state.activeWorkspacePath || agentDir, '.wechatbot-inbox'),
+    }
+    return state
+  }
+
+  const chats = new Map(targets.map((target) => [target.id, makeChatState(target)]))
   const overviewClient = { name: '', mode: 'group', client: null }
   const recentSends = []
   const deletingSessions = new Set()
@@ -345,25 +398,12 @@ export function apply(ctx, config = {}) {
     onError: (msg) => { runtime.lastError = `ilink: ${msg}` },
   })
 
-  function makeChatState(target) {
-    return {
-      ...target,
-      client: null,
-      sessions: null,
-      pending: [],
-      queue: Promise.resolve(),
-      dedupe: new MessageDedupe(),
-      selfEcho: new Map(),
-      lastSpeechAt: 0,
-      scanBaselined: false,
-    }
-  }
-
   function syncTargetsInPlace(nextTargets) {
     targets = nextTargets
     const nextIds = new Set(nextTargets.map((item) => item.id))
     for (const [id, prev] of chats) {
       if (!nextIds.has(id)) {
+        if (prev.mentionTimer) { clearTimeout(prev.mentionTimer); prev.mentionTimer = null }
         prev.sessions?.stop()
         chats.delete(id)
       }
@@ -375,6 +415,11 @@ export function apply(ctx, config = {}) {
         existing.mode = item.mode
         existing.accountId = item.accountId
         existing.userId = item.userId
+        existing.role = item.role
+        if (item.workspacePath) {
+          existing.workspacePath = item.workspacePath
+          if (!existing.activeWorkspacePath) existing.activeWorkspacePath = item.workspacePath
+        }
         existing.client = null
       } else {
         chats.set(item.id, makeChatState(item))
@@ -431,6 +476,9 @@ export function apply(ctx, config = {}) {
   function recordSubmission(chat, kind, content, details = {}) {
     quota.record()
     chat.lastSpeechAt = Date.now()
+    if (details.sessionId) {
+      turnSentCounts.set(details.sessionId, (turnSentCounts.get(details.sessionId) || 0) + 1)
+    }
     recentSends.unshift({ at: chat.lastSpeechAt, targetId: chat.id, targetName: chat.name, kind, content, ...details })
     recentSends.length = Math.min(recentSends.length, 5)
     if (kind !== 'text') return
@@ -439,19 +487,163 @@ export function apply(ctx, config = {}) {
     if (chat.selfEcho.size > 200) chat.selfEcho.delete(chat.selfEcho.keys().next().value)
   }
 
+  const isEmptyMention = (msg) => msg.isAtMe && (
+    !String(msg.content || '').trim()
+    || msg.needsOcr === true
+    || /^@\S+$/.test(String(msg.content || '').trim())
+    || String(msg.content || '').includes('有人@了你')
+  )
+
+  const ADMIN_COMMANDS = new Set(['/help', '/status', '/dev', '/ws', '/new', '/stop', '/compact', '/group', '/schedules'])
+
+  async function handleAdminSlash(chat, msg) {
+    const raw = String(msg.content || '').trim()
+    const [cmdRaw, ...rest] = raw.split(/\s+/)
+    const cmd = cmdRaw.toLowerCase()
+    const arg = rest.join(' ').trim()
+    const c = await ensureClient(chat)
+    const reply = (txt) => c.sendChunks(txt, { formatMarkdown: false }).catch((err) => { runtime.lastError = err.message })
+    const mgr = ensureSessions(chat)
+    const curWin = mgr.current
+
+    if (cmd === '/help') {
+      return reply([
+        'DSH 管理员指令列表：',
+        '/status — 查看运行模式、工作区与 24h 推送窗口',
+        '/ws [序号|路径] — 查看或切换本机 DSH 工作区',
+        '/new — 归档当前对话并开启新会话',
+        '/compact — 压缩当前会话上下文',
+        '/stop — 立即中止当前正在执行的任务',
+        '/schedules — 查看记忆中的定时提醒约定',
+        '/group [start|stop|status] — 远程控制桌面群聊桥接',
+        '/dev [on|off] — 切换「个人助理层」与「开发者直连 Harness 模式」',
+      ].join('\n'))
+    }
+    if (cmd === '/dev') {
+      const next = arg === 'on' ? true : arg === 'off' ? false : !chat.devMode
+      if (next !== chat.devMode && curWin) await mgr.close(curWin.sessionId, { reason: 'mode-switch' }).catch(() => {})
+      chat.devMode = next
+      return reply(next
+        ? '已切换至【开发者直连 Harness 模式】：跳过助理人设，消息与文件直通当前 DSH 工作区，回复自动按段回传。'
+        : '已切回【个人助理 Agent 模式】：恢复人设、记忆与定时约定能力。')
+    }
+    if (cmd === '/ws') {
+      const list = trigger.listWorkspaces()
+      if (!arg) {
+        const lines = list.map((w, idx) => {
+          const cur = normalizePath(w.path) === normalizePath(chat.activeWorkspacePath || agentDir) ? '（当前）' : ''
+          return `${idx + 1}. ${w.title}${cur}\n   ${w.path}`
+        })
+        return reply(lines.length ? `可用工作区：\n${lines.join('\n')}\n\n发送 /ws 序号 或 /ws 路径 切换。` : `当前工作区：${chat.activeWorkspacePath || agentDir}`)
+      }
+      let nextPath = ''
+      if (/^\d+$/.test(arg)) {
+        nextPath = list[Number(arg) - 1]?.path || ''
+      } else {
+        const matched = list.find((w) => w.path === arg || w.title === arg)
+        nextPath = matched?.path || (isAbsolute(arg) ? arg : '')
+      }
+      if (!nextPath) return reply(`未找到工作区：${arg}`)
+      if (curWin) await mgr.close(curWin.sessionId, { reason: 'workspace-switch' }).catch(() => {})
+      chat.activeWorkspacePath = nextPath
+      return reply(`已切换工作区为：\n${nextPath}\n文件收件箱：${chat.resolveInboxDir()}`)
+    }
+    if (cmd === '/new') {
+      if (!curWin) return reply('当前没有进行中的会话，下次发消息会自动创建。')
+      await mgr.close(curWin.sessionId, { reason: 'manual' }).catch(() => {})
+      return reply('已归档旧会话，下次发消息将开启全新上下文。')
+    }
+    if (cmd === '/stop') {
+      if (!curWin) return reply('当前没有活跃中的 DSH 会话。')
+      await trigger.stopSession(curWin.sessionId)
+      mgr.forget(curWin.sessionId)
+      return reply('已中止并归档当前会话。')
+    }
+    if (cmd === '/compact') {
+      if (!curWin) return reply('当前没有活跃中的会话可压缩。')
+      await trigger.wake(curWin.sessionId, '/compact')
+      return reply('已发送上下文压缩请求。')
+    }
+    if (cmd === '/group') {
+      if (arg === 'stop') {
+        desktopPaused = true
+        for (const item of chats.values()) {
+          if (item.mode !== 'clawbot' && item.mentionTimer) { clearTimeout(item.mentionTimer); item.mentionTimer = null }
+        }
+        return reply('已远程暂停桌面群聊桥接（管理员私聊通道保持运行）。')
+      }
+      if (arg === 'start') {
+        desktopPaused = false
+        return reply(detector ? '已远程恢复桌面群聊桥接。' : '桌面群聊已取消暂停，请确认检测服务已启动。')
+      }
+      const desktopCount = [...chats.values()].filter((item) => item.mode !== 'clawbot').length
+      return reply(`桌面群聊目标数：${desktopCount}，状态：${!detector ? '检测服务未启动' : desktopPaused ? '已远程暂停' : '运行中'}`)
+    }
+    if (cmd === '/schedules') {
+      const summary = scheduleStore.formatSummary(chat.id)
+      return reply(summary ? `当前生效的定时约定：\n${summary}` : '目前没有记录定时约定。直接告诉我“记住每天几点…”即可添加。')
+    }
+    if (cmd === '/status') {
+      const win = ilinkStore.activeWindowStatus(chat.accountId, chat.userId)
+      const remainMin = Math.floor(win.remainingMs / 60_000)
+      const winText = win.active ? `有效（剩余 ${Math.floor(remainMin / 60)} 小时 ${remainMin % 60} 分钟）` : '已超 24 小时（你刚刚发消息已重置）'
+      const schedCount = scheduleStore.list(chat.id).filter((s) => s.enabled).length
+      return reply([
+        `模式：${chat.devMode ? '开发者直连 Harness' : `个人助理 (${opts.adminPreset})`}`,
+        `工作区：${chat.activeWorkspacePath || agentDir}`,
+        `当前会话：${curWin ? `${curWin.sessionId} (第 ${curWin.turnCount || 0} 轮)` : '空闲待命'}`,
+        `24h 主动推送窗口：${winText}`,
+        `定时约定：${schedCount} 条`,
+        `桌面群聊状态：${desktopPaused ? '已暂停' : detector ? '运行中' : '未启动'}`,
+      ].join('\n'))
+    }
+  }
+
   function enqueue(messages, source = 'detector') {
-    const wake = new Set()
+    const wakeNow = new Set()
+    const debounceChats = new Set()
     for (const msg of messages) {
       const chat = chats.get(msg.targetId)
-      if (!chat || Date.now() - (chat.selfEcho.get(echoKey(msg.content)) ?? 0) < 15 * 60 * 1000) continue
+      if (!chat) continue
+      if (chat.mode !== 'clawbot' && desktopPaused) continue
+      if (chat.role === 'admin' && msg.fromUserId) {
+        const boundUserId = chat.userId || ilinkStore.getAccount(chat.accountId)?.userId || ''
+        if (boundUserId && msg.fromUserId !== boundUserId) continue
+      }
+      if (chat.role === 'admin' && !msg.fromSchedule) {
+        const cmdToken = String(msg.content || '').trim().split(/\s+/)[0]?.toLowerCase()
+        if (ADMIN_COMMANDS.has(cmdToken)) {
+          if (chat.dedupe.claim(msg)) {
+            handleAdminSlash(chat, msg).catch((error) => { runtime.lastError = error.message })
+          }
+          continue
+        }
+      }
+      if (Date.now() - (chat.selfEcho.get(echoKey(msg.content)) ?? 0) < 15 * 60 * 1000) continue
       msg.isAtMe = msg.isAtMe || mentionsBot(msg.content, opts.atKeywords)
       if (!chat.dedupe.claim(msg)) continue
       chat.pending.push(msg)
       if (chat.pending.length > 200) chat.pending.shift()
-      if (msg.decision?.reply || (source !== 'catchup' && msg.isAtMe)) wake.add(chat)
+      if (msg.decision?.reply || (source !== 'catchup' && msg.isAtMe)) {
+        if (chat.mode !== 'clawbot' && opts.mentionMergeSeconds > 0 && isEmptyMention(msg) && !msg.fromSchedule) {
+          debounceChats.add(chat)
+        } else {
+          wakeNow.add(chat)
+        }
+      }
     }
-    for (const chat of wake) {
+    for (const chat of wakeNow) {
+      if (chat.mentionTimer) { clearTimeout(chat.mentionTimer); chat.mentionTimer = null }
       triggerTurn(chat, source).catch((error) => { runtime.lastError = error.message })
+    }
+    for (const chat of debounceChats) {
+      if (wakeNow.has(chat)) continue
+      if (chat.mentionTimer) clearTimeout(chat.mentionTimer)
+      chat.mentionTimer = setTimeout(() => {
+        chat.mentionTimer = null
+        triggerTurn(chat, source).catch((error) => { runtime.lastError = error.message })
+      }, opts.mentionMergeSeconds * 1000)
+      chat.mentionTimer.unref?.()
     }
   }
 
@@ -516,11 +708,15 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => ctx.on?.('system-prompt/assemble', async (_assembly, context, next) => {
     const assembled = typeof next === 'function' ? await next() : (_assembly ?? { sections: [] })
     const sessionId = context?.agent?.id ?? context?.agent?.session?.id
-    if (!sessionId || !sessionChat(sessionId) || opts.systemPersonaInjection === false) return assembled
+    const chat = sessionId ? sessionChat(sessionId) : null
+    if (!sessionId || !chat || opts.systemPersonaInjection === false || devModeSessions.has(sessionId)) return assembled
 
     systemAssembledSessions.add(sessionId)
     const role = identityBlock()
-    const fullPersona = role ? `${BASE_PERSONA_PREFIX}\n\n---\n\n${role}` : BASE_PERSONA_PREFIX
+    const prefix = chat.role === 'admin'
+      ? `${BASE_PERSONA_PREFIX}\n当前为管理员私聊个人助理模式：除了微信发消息和表情，你还可以用 wechat_send_file 发送本机文件回手机，用 wechat_memory (action="note") 写长期约定，用 wechat_schedule 管理用户明确要求的定时提醒与问候。`
+      : BASE_PERSONA_PREFIX
+    const fullPersona = role ? `${prefix}\n\n---\n\n${role}` : prefix
 
     const rest = (assembled?.sections || []).filter(
       (sec) => sec.name !== 'persona' && !/persona/i.test(sec.name),
@@ -570,6 +766,7 @@ export function apply(ctx, config = {}) {
       entries: memoryPromptEntries(),
       targetId: chat?.id,
       includeLegacy: targets.length <= 1,
+      includeNotes: true,
       maxChars: Math.max(0, Math.min(limit / 4, budgetFor())),
     })
     sections[sections.length - 1].text = memoryText ? `# 记忆\n\n${memoryText}` : ''
@@ -704,6 +901,33 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  async function relayAdminWait(chat, sessionId, { isDev = false, sentBefore = 0, peerId = '' } = {}) {
+    const client = await ensureClient(chat).catch(() => null)
+    const typingTimer = setInterval(() => {
+      client?.setTyping?.(true, peerId).catch(() => {})
+    }, 20_000)
+    typingTimer.unref?.()
+    try {
+      const result = await trigger.wait(sessionId, 300_000)
+      if (disposed || detectorStopping) return
+      const reply = assistantTextFromWait(result)
+      if (!reply) return
+      const sentAlready = (turnSentCounts.get(sessionId) || 0) > sentBefore
+      if (isDev || !sentAlready) {
+        if (client && typeof client.sendChunks === 'function') {
+          await client.sendChunks(reply, { formatMarkdown: true })
+          recordSubmission(chat, 'text', reply.slice(0, 120), { sessionId })
+          chat.sessions?.rememberReply(sessionId, [reply])
+        }
+      }
+    } catch (error) {
+      runtime.lastError = `admin-relay: ${error.message}`
+    } finally {
+      clearInterval(typingTimer)
+      client?.setTyping?.(false, peerId).catch(() => {})
+    }
+  }
+
   let sessionQueue = Promise.resolve()
   function withSessionMutation(fn) {
     const run = sessionQueue.then(fn)
@@ -774,24 +998,43 @@ export function apply(ctx, config = {}) {
         win = null
       }
       const first = !win
-      const built = buildInjection({ first, unread: batch, chat })
+      const isDevTurn = chat.role === 'admin' && chat.devMode === true
+      const rawDevPrompt = batch.map((m) => m.content || '').filter(Boolean).join('\n\n')
+      const built = isDevTurn
+        ? { text: rawDevPrompt || '(无内容)', length: rawDevPrompt.length, dropped: [] }
+        : buildInjection({ first, unread: batch, chat })
       const previous = win?.messages ?? []
       try {
         if (first) {
-          const created = await trigger.createSession()
+          const agentPreset = chat.role === 'admin'
+            ? (isDevTurn ? 'standard' : opts.adminPreset)
+            : opts.agentPreset
+          const workspacePath = chat.role === 'admin' && chat.activeWorkspacePath
+            ? chat.activeWorkspacePath
+            : ''
+          const created = await trigger.createSession({ agentPreset, workspacePath })
           if (disposed || detectorStopping) {
             await trigger.archive(created.sessionId)
             return { ok: false, error: '机器人正在停止' }
           }
+          if (isDevTurn) devModeSessions.add(created.sessionId)
           rememberRoute(created.sessionId, chat)
           win = mgr.register(created.sessionId, { title: windowTitle(chat) })
         }
+        const sentBefore = turnSentCounts.get(win.sessionId) || 0
         // A tool can run as soon as the controller admits a prompt. Publish this
         // batch first and restore the previous scope if admission fails.
         win.messages = [...previous, ...batch].slice(-200)
         const wake = await trigger.wake(win.sessionId, built.text, { image: shot, requireMembership: !first })
         mgr.touch(win.sessionId, { messages: batch.length })
         if (first) trigger.rename(win.sessionId, win.title).catch(() => {})
+        if (chat.mode === 'clawbot' && chat.role === 'admin' && typeof trigger.controller?.wait === 'function') {
+          void relayAdminWait(chat, win.sessionId, {
+            isDev: isDevTurn,
+            sentBefore,
+            peerId: batch.at(-1)?.fromUserId || '',
+          })
+        }
         const consumed = new Set(batch)
         chat.pending = chat.pending.filter((msg) => !consumed.has(msg))
         detector?.drain(batch)
@@ -822,12 +1065,14 @@ export function apply(ctx, config = {}) {
     deletion.visitJobs().catch((error) => { runtime.lastError = error.message })
     return () => {
       disposed = true
+      if (scheduleTimer) { clearInterval(scheduleTimer); scheduleTimer = null }
       ilinkLogin.stopAll()
       ilinkBridge.stop().catch(() => {})
       detector?.stop().catch(() => {})
       // A reload ends this instance's window table too: archive what it owned so
       // the sessions do not linger unarchived with no sweeper left to catch them.
       for (const chat of chats.values()) {
+        if (chat.mentionTimer) { clearTimeout(chat.mentionTimer); chat.mentionTimer = null }
         chat.sessions?.stop()
         chat.queue.then(() => chat.sessions?.flush({ reason: 'reloaded' })).catch(() => {})
       }
@@ -873,9 +1118,30 @@ export function apply(ctx, config = {}) {
     })
   }
 
+  async function runDueSchedules() {
+    if (!detector || detectorStopping || disposed) return
+    const due = scheduleStore.dueJobs()
+    for (const job of due) {
+      const chat = chats.get(job.targetId)
+      if (!chat || chat.mode !== 'clawbot') continue
+      const winStatus = ilinkStore.activeWindowStatus(chat.accountId, chat.userId)
+      if (!winStatus.active) continue
+      scheduleStore.markTriggered(job.id)
+      enqueue([{
+        groupName: chat.name,
+        targetId: chat.id,
+        sender: '定时约定',
+        content: `[定时约定触发] ${job.label}`,
+        isAtMe: true,
+        fromSchedule: true,
+        notificationId: `sched-${job.id}-${Date.now()}`,
+      }], 'schedule')
+    }
+  }
+
   async function scanChats(reason) {
     const results = await Promise.allSettled([...chats.values()].map(async (chat) => {
-      if (chat.mode === 'clawbot') return []
+      if (desktopPaused || chat.mode === 'clawbot') return []
       const read = await readScreen(chat, reason)
       if (read.source === 'unavailable') return []
       if (chat.scanBaselined) return read.messages
@@ -914,6 +1180,7 @@ export function apply(ctx, config = {}) {
       policy: {
         atKeywords: opts.atKeywords,
         proactiveProbability: opts.proactiveReplyProbability,
+        quietHours: opts.quietHours,
       },
     })
     // Every message the detector queues both reaches the inbox view and starts
@@ -936,6 +1203,11 @@ export function apply(ctx, config = {}) {
       detector = null
       throw error
     }
+    if (!scheduleTimer) {
+      scheduleTimer = setInterval(() => { runDueSchedules().catch(() => {}) }, 30_000)
+      scheduleTimer.unref?.()
+    }
+    void runDueSchedules().catch(() => {})
     // A restart must not swallow mentions that arrived while the service was
     // down: the first sweep is a baseline by design, so @-mentions from the last
     // few minutes are replayed once here. Ordinary chatter is not replayed —
@@ -955,6 +1227,10 @@ export function apply(ctx, config = {}) {
     if (!detector || detectorStopping) return { running: false }
     detectorStopping = true
     try {
+      if (scheduleTimer) { clearInterval(scheduleTimer); scheduleTimer = null }
+      for (const chat of chats.values()) {
+        if (chat.mentionTimer) { clearTimeout(chat.mentionTimer); chat.mentionTimer = null }
+      }
       await ilinkBridge.stop().catch(() => {})
       const result = await detector.stop()
       await Promise.all([...chats.values()].map((chat) => chat.queue))
@@ -974,11 +1250,15 @@ export function apply(ctx, config = {}) {
   // ------------------------------------------------------------- tools
 
   const toolDefs = new Map()
-  const registerTool = (definition, label) => {
+  const registerTool = (definition, label, customWhen = null) => {
     toolDefs.set(definition.name, definition)
-    if (MODEL_TOOLS.has(definition.name)) ctx.effect(() => ctx.tools.register(definition, {
-      when: ({ agent }) => !stickerLabelSessions.has(agent.id),
-    }), label)
+    if (customWhen) {
+      ctx.effect(() => ctx.tools.register(definition, { when: customWhen }), label)
+    } else if (MODEL_TOOLS.has(definition.name)) {
+      ctx.effect(() => ctx.tools.register(definition, {
+        when: ({ agent }) => !stickerLabelSessions.has(agent.id) && !devModeSessions.has(agent.id),
+      }), label)
+    }
   }
 
   registerTool({
@@ -1044,15 +1324,22 @@ export function apply(ctx, config = {}) {
         if (chat.mode === 'clawbot') {
           const stale = ilinkBridge.isTokenStale(chat.accountId)
           const ready = ilinkBridge.isAccountReady(chat.accountId)
+          const peerId = chat.userId || ilinkStore.getAccount(chat.accountId)?.userId || ''
+          const win = ilinkStore.activeWindowStatus(chat.accountId, peerId)
           return {
             id: chat.id,
             name: chat.name,
             mode: chat.mode,
+            role: chat.role || 'chat',
+            workspacePath: chat.activeWorkspacePath || chat.workspacePath || '',
+            devMode: chat.devMode === true,
             accountId: chat.accountId,
-            userId: chat.userId || ilinkStore.getAccount(chat.accountId)?.userId || '',
+            userId: peerId,
             ready,
             tokenStale: stale,
-            hasContextToken: ilinkBridge.hasContextToken(chat.accountId, chat.userId),
+            hasContextToken: win.hasToken,
+            windowActive: win.active,
+            windowRemainingMinutes: Math.floor(win.remainingMs / 60_000),
             pending: chat.pending.length,
           }
         }
@@ -1074,7 +1361,11 @@ export function apply(ctx, config = {}) {
         documents: Object.fromEntries(
           Object.entries(docs).map(([k, p]) => [k, existsSync(p)]),
         ),
-        connected, canStart, targets: targetStatus, totals: quota.totals(), recentSends,
+        connected, canStart, desktopPaused,
+        targets: targetStatus,
+        workspaces: trigger.listWorkspaces(),
+        schedules: scheduleStore.list(),
+        totals: quota.totals(), recentSends,
         detector: detector ? detector.status() : { running: false },
         pending: pendingMessages().length,
         trigger: {
@@ -1130,6 +1421,8 @@ export function apply(ctx, config = {}) {
         const decision = m.decision ?? shouldReply(m, {
           ...opts,
           privateChat: ['private', 'clawbot'].includes(chats.get(m.targetId)?.mode),
+          adminChat: chats.get(m.targetId)?.role === 'admin',
+          quietHours: opts.quietHours,
           proactiveProbability: opts.proactiveReplyProbability,
         })
         return {
@@ -1209,7 +1502,7 @@ export function apply(ctx, config = {}) {
     async execute(args = {}, exec) {
       try {
         await stickerLibrary.ready()
-        if (args.action === 'send') return JSON.stringify(await sendNativeSticker(args.id, () => activeToolChat(exec?.agent?.id)))
+        if (args.action === 'send') return JSON.stringify(await sendNativeSticker(args.id, () => activeToolChat(exec?.agent?.id), exec?.agent?.id))
         const query = String(args.query ?? '').trim().toLocaleLowerCase()
         const matches = stickerLibrary.load().items.filter((item) => item.available && (item.tags.length || item.description)
           && (!query || [...item.tags, item.description].some((label) => label.toLocaleLowerCase().includes(query))))
@@ -1221,7 +1514,7 @@ export function apply(ctx, config = {}) {
     },
   }, 'dsh-wechatbot: wechat_stickers')
 
-  async function sendNativeSticker(id, resolveChat) {
+  async function sendNativeSticker(id, resolveChat, sessionId = '') {
     await stickerLibrary.ready()
     return runForChat(resolveChat(), async () => {
       const chat = resolveChat()
@@ -1234,7 +1527,7 @@ export function apply(ctx, config = {}) {
         const result = await c.sendSticker(sticker, { beforeSubmit: resolveChat })
         if (!result.submitted) throw new Error('微信表情点击未提交')
         recordSubmission(chat, 'sticker', sticker.tags.join(' · ') || sticker.description || '收藏表情',
-          { thumbnail: `data:image/png;base64,${sticker.image}` })
+          { thumbnail: `data:image/png;base64,${sticker.image}`, sessionId })
         return { ok: true, ...result }
       } catch (error) {
         quota.record('failed')
@@ -1286,7 +1579,7 @@ export function apply(ctx, config = {}) {
             const c = await ensureClient(chat)
             if (typeof c.sendImage !== 'function') throw new Error('当前平台不支持发图')
             const outcome = await c.sendImage(target, { beforeSubmit: () => activeToolChat(exec?.agent?.id) })
-            recordSubmission(chat, 'image', basename(target))
+            recordSubmission(chat, 'image', basename(target), { sessionId: exec?.agent?.id })
             return outcome
           } catch (error) {
             quota.record('failed')
@@ -1423,7 +1716,7 @@ export function apply(ctx, config = {}) {
               if (pauseSec > 0) await new Promise((resolve) => setTimeout(resolve, pauseSec * 1000))
             }
             const outcome = await c.send(draft, { requireFront: sentCount > 0, beforeSubmit: () => activeToolChat(sessionId) })
-            recordSubmission(chat, 'text', outcome.sent)
+            recordSubmission(chat, 'text', outcome.sent, { sessionId })
             chat.sessions.rememberReply(sessionId, [outcome.sent])
             results.push({ ok: true, text: outcome.sent, delaySeconds: outcome.delaySeconds })
             previousSent = outcome.sent
@@ -1659,19 +1952,22 @@ export function apply(ctx, config = {}) {
   registerTool({
     name: 'wechat_memory',
     description:
-      'Inspect or edit the bot memory document. read returns the memory text; append adds a note; '
-      + 'clear empties it.',
+      'Inspect or edit the bot memory document. read returns memory; note records a permanent commitment under 长期约定; append adds a dated note; clear empties it.',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['read', 'append', 'clear'], default: 'read' },
-        text: { type: 'string', description: 'Note to append for action=append.' },
+        action: { type: 'string', enum: ['read', 'note', 'append', 'clear'], default: 'read' },
+        text: { type: 'string', description: 'Memory note to record.' },
       },
       additionalProperties: false,
     },
     output: textOutput('Memory contents or confirmation.'),
     async execute(args = {}) {
       const action = String(args.action || 'read')
+      if (action === 'note') {
+        const ok = memory.appendNote(String(args.text || ''))
+        return JSON.stringify({ ok, notes: memory.parse().notes })
+      }
       if (action === 'append') {
         const ok = memory.append(String(args.text || ''))
         return JSON.stringify({ ok, entries: memory.parse().entries.length })
@@ -1680,10 +1976,135 @@ export function apply(ctx, config = {}) {
         writeFileSync(docs.memory, '# 记忆\n\n> 每段对话结束后自动追加。\n', 'utf8')
         return JSON.stringify({ ok: true, cleared: true })
       }
-      const { digest, entries } = memory.parse()
-      return JSON.stringify({ ok: true, digest, entries, promptPreview: memory.contextForPrompt() }, null, 2)
+      const { digest, entries, notes } = memory.parse()
+      return JSON.stringify({ ok: true, notes, digest, entries, promptPreview: memory.contextForPrompt({ entries: 3, includeNotes: true }) }, null, 2)
     },
-  }, 'dsh-wechatbot: wechat_memory')
+  }, 'dsh-wechatbot: wechat_memory', ({ agent }) =>
+    !stickerLabelSessions.has(agent.id) && sessionChat(agent.id)?.role === 'admin' && !devModeSessions.has(agent.id))
+
+  registerTool({
+    name: 'wechat_send_file',
+    description:
+      'Send a local file or image (<= 25 MiB) to the bound admin WeChat over encrypted CDN.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Absolute or workspace-relative file path.' },
+        caption: { type: 'string', description: 'Optional short caption.' },
+      },
+      required: ['path'],
+      additionalProperties: false,
+    },
+    output: textOutput('File send result.'),
+    async execute(args = {}, exec) {
+      try {
+        const sessionId = exec?.agent?.id
+        const chat = activeToolChat(sessionId)
+        if (chat.role !== 'admin') return JSON.stringify({ ok: false, error: '仅管理员官方私聊支持传输任意本地文件' })
+        const rawPath = String(args.path || '').trim()
+        const resolved = isAbsolute(rawPath) ? rawPath : join(chat.activeWorkspacePath || agentDir, rawPath)
+        const c = await ensureClient(chat)
+        if (typeof c.sendFile !== 'function') return JSON.stringify({ ok: false, error: '当前通道不支持发送文件' })
+        const res = await c.sendFile(resolved, {
+          caption: args.caption || '',
+          beforeSubmit: () => activeToolChat(sessionId),
+        })
+        recordSubmission(chat, 'file', res.fileName, { sessionId })
+        return JSON.stringify({ ok: true, ...res })
+      } catch (error) {
+        return JSON.stringify({ ok: false, error: error.message })
+      }
+    },
+  }, 'dsh-wechatbot: wechat_send_file', ({ agent }) =>
+    !stickerLabelSessions.has(agent.id) && sessionChat(agent.id)?.role === 'admin')
+
+  registerTool({
+    name: 'wechat_schedule',
+    description:
+      'Create, list, or cancel user-requested reminders and recurring greetings in MEMORY.md. Only add when the user explicitly asks to remember a time/greeting.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'remove'], default: 'list' },
+        label: { type: 'string', description: 'Reminder or greeting instruction.' },
+        kind: { type: 'string', enum: ['once', 'daily', 'weekdays', 'interval'], default: 'once' },
+        time: { type: 'string', description: 'Clock HH:MM for daily/weekdays (e.g. 09:00).' },
+        inMinutes: { type: 'number', description: 'Minutes from now for once.' },
+        intervalHours: { type: 'number', description: 'Interval in hours for interval.' },
+        id: { type: 'string', description: 'Schedule ID to remove.' },
+      },
+      additionalProperties: false,
+    },
+    output: textOutput('Schedule list or change result.'),
+    async execute(args = {}, exec) {
+      try {
+        const chat = activeToolChat(exec?.agent?.id)
+        if (chat.role !== 'admin') return JSON.stringify({ ok: false, error: '仅管理员私人助理支持定时约定' })
+        const action = String(args.action || 'list')
+        if (action === 'add') {
+          const item = scheduleStore.add({
+            targetId: chat.id,
+            accountId: chat.accountId,
+            label: args.label,
+            kind: args.kind || 'once',
+            time: args.time || '',
+            inMinutes: args.inMinutes,
+            intervalHours: args.intervalHours,
+          })
+          memory.appendNote(`定时约定 [#${item.id}] (${item.kind}${item.time ? ` ${item.time}` : ''}): ${item.label}`)
+          return JSON.stringify({ ok: true, item })
+        }
+        if (action === 'remove') {
+          const removed = scheduleStore.remove(String(args.id || '').trim())
+          return JSON.stringify({ ok: removed, id: args.id })
+        }
+        return JSON.stringify({ ok: true, schedules: scheduleStore.list(chat.id) })
+      } catch (error) {
+        return JSON.stringify({ ok: false, error: error.message })
+      }
+    },
+  }, 'dsh-wechatbot: wechat_schedule', ({ agent }) =>
+    !stickerLabelSessions.has(agent.id) && sessionChat(agent.id)?.role === 'admin' && !devModeSessions.has(agent.id))
+
+  registerTool({
+    name: 'wechat_notify_admin',
+    description:
+      'Send a proactive notification or file to the bound admin WeChat (checks the 24h active WeChat reply window first).',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Notification message text.' },
+        filePath: { type: 'string', description: 'Optional local file to send.' },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    output: textOutput('Notification outcome.'),
+    async execute(args = {}) {
+      try {
+        const adminChat = [...chats.values()].find((c) => c.mode === 'clawbot' && c.role === 'admin')
+        if (!adminChat) return JSON.stringify({ ok: false, error: '未配置管理员官方私聊目标' })
+        const win = ilinkStore.activeWindowStatus(adminChat.accountId, adminChat.userId)
+        if (!win.active) {
+          return JSON.stringify({ ok: false, error: '管理员超过 24 小时未在微信发消息，无法主动推送，请等其发消息激活窗口' })
+        }
+        const c = await ensureClient(adminChat)
+        const msgText = String(args.text || '').trim()
+        if (msgText) {
+          await c.sendChunks(msgText, { formatMarkdown: true })
+          recordSubmission(adminChat, 'text', msgText.slice(0, 120))
+        }
+        if (args.filePath) {
+          const fileRes = await c.sendFile(String(args.filePath))
+          recordSubmission(adminChat, 'file', fileRes.fileName)
+        }
+        return JSON.stringify({ ok: true, windowRemainingMinutes: Math.floor(win.remainingMs / 60_000) })
+      } catch (error) {
+        return JSON.stringify({ ok: false, error: error.message })
+      }
+    },
+  }, 'dsh-wechatbot: wechat_notify_admin', ({ agent }) =>
+    !stickerLabelSessions.has(agent.id) && !sessionChat(agent.id) && [...chats.values()].some((c) => c.mode === 'clawbot' && c.role === 'admin'))
 
   registerTool({
     name: 'wechat_inject_preview',
@@ -1767,8 +2188,10 @@ export function apply(ctx, config = {}) {
         if (!Object.hasOwn(Config.dict, key)) throw new Error(`未知设置项 ${key}`)
         const fields = Config.dict[key].dict
         if (key === 'targets') {
-          next.targets = configuredTargets({ targets: value }).map(({ name, mode, accountId, userId }) =>
-            mode === 'clawbot' ? { name, mode, accountId, ...(userId ? { userId } : {}) } : { name, mode })
+          next.targets = configuredTargets({ targets: value }).map(({ name, mode, accountId, userId, role, workspacePath }) =>
+            mode === 'clawbot'
+              ? { name, mode, accountId, role: role || 'chat', ...(workspacePath ? { workspacePath } : {}), ...(userId ? { userId } : {}) }
+              : { name, mode })
         } else if (fields) {
           if (!value || typeof value !== 'object' || Array.isArray(value)
               || Object.keys(value).some((field) => !Object.hasOwn(fields, field))) {
@@ -1816,6 +2239,24 @@ export function apply(ctx, config = {}) {
       for (const holder of [overviewClient, ...chats.values()]) {
         holder.client?.then?.((c) => { if (c) c.antiDetection = opts.antiDetection }).catch?.(() => {})
       }
+    }
+    if (Object.hasOwn(changes, 'desktopRpaEnabled')) {
+      opts.desktopRpaEnabled = activeConfig.desktopRpaEnabled === true
+    }
+    if (Object.hasOwn(changes, 'adminPreset')) {
+      opts.adminPreset = activeConfig.adminPreset || 'standard'
+    }
+    if (Object.hasOwn(changes, 'mentionMergeSeconds')) {
+      opts.mentionMergeSeconds = Math.max(0, Math.min(15, Number(activeConfig.mentionMergeSeconds ?? 3.5)))
+    }
+    if (Object.hasOwn(changes, 'quietHours')) {
+      opts.quietHours = {
+        enabled: activeConfig.quietHours?.enabled === true,
+        start: String(activeConfig.quietHours?.start || '01:00'),
+        end: String(activeConfig.quietHours?.end || '08:00'),
+        allowAt: activeConfig.quietHours?.allowAt !== false,
+      }
+      if (detector) detector.policy.quietHours = opts.quietHours
     }
     if (Object.hasOwn(changes, 'workspaceTitle')) {
       const workspace = await trigger.registry?.resolveByPath?.(agentDir)

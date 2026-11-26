@@ -1,8 +1,8 @@
 {
   "name": "dsh-wechatbot",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
-  "description": "Zero-injection WeChat bot bridge for DSH (macOS & Windows RPA + official ClawBot QR channel), supporting group and private chats.",
+  "description": "Official WeChat (iLink ClawBot) private chatbot and remote personal assistant plugin for DSH, with dual-layer Harness control, bidirectional file transfer, and memory-driven reminders.",
   "type": "module",
   "main": "./index.js",
   "exports": {
