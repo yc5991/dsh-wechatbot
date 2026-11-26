@@ -28,11 +28,15 @@ function workspaceFixture(path) {
 test('older config and visible history stay out of a new session after sidebar archive or panel removal', { timeout: 5000 }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-wechatbot-test-'))
   const previousHome = process.env.HOME
+  const previousProfile = process.env.USERPROFILE
   process.env.HOME = home
+  process.env.USERPROFILE = home
   const dispose = []
   t.after(() => {
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
+    if (previousProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousProfile
     rmSync(home, { recursive: true, force: true })
   })
   t.mock.property(process, 'platform', 'darwin')

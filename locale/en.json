@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "dsh-wechatbot",
-    "description": "Detects new messages in WeChat for macOS, reads chats with vision, and verifies the target window before sending replies.",
+    "description": "Zero-injection WeChat bot bridge for macOS and Windows with group and private chats, native stickers, session memory, and capture-protected mode.",
     "detail": "docs/DETAIL.md"
   }
 }

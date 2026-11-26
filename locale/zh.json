@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "微信机器人桥接",
-    "description": "在 macOS 微信中监测新消息，通过视觉识别读取聊天，并在核对目标窗口后发送回复。",
+    "description": "面向 macOS 与 Windows 的零注入微信机器人桥接，支持群聊与私聊、原生收藏表情、会话记忆及防截屏模式。",
     "detail": "docs/DETAIL.md"
   }
 }

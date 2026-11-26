@@ -68,6 +68,9 @@ export const Config = Schema.object({
     name: Schema.string().required(),
     mode: Schema.union(['group', 'private']).default('group'),
   })).max(10), Schema.const(null)]).default(null),
+  captureProtected: Schema.boolean()
+    .description('防截屏模式：开启后跳过窗口截图、OCR 与输入框图像核对，仅使用独立窗口标题校验与无像素拖选收发。')
+    .default(false),
   dragCopyEnabled: Schema.boolean().default(true),
   ocrEnabled: Schema.boolean().default(true),
   dragPoints: Schema.object({
@@ -141,8 +144,8 @@ export const Config = Schema.object({
     .default(100000),
 
   agentPreset: Schema.string()
-    .description('机器人会话使用的 Agent 预设。留空用 standard；想让它更专注可以自建预设再填这里。')
-    .default('standard'),
+    .description('机器人会话使用的 Agent 预设。留空用 wechatbot；想让它更专注可以自建预设再填这里。')
+    .default('wechatbot'),
   workspaceTitle: Schema.string()
     .description('机器人工作区在侧边栏显示的名字。会话都归在这个工作区下面。')
     .default('dsh-wechatbot'),
@@ -182,35 +185,38 @@ export const Config = Schema.object({
 })
 
 export function apply(ctx, config = {}) {
-  const agentDir = expandHome(config.agentDir) || join(stateDir(), 'agent')
-  const targets = configuredTargets(config)
+  let activeConfig = { ...config }
+  const agentDir = expandHome(activeConfig.agentDir) || join(stateDir(), 'agent')
+  const targets = configuredTargets(activeConfig)
   const opts = {
-    appName: config.appName || (process.platform === 'darwin' ? '微信' : 'WeChat'),
-    dragPoints: config.dragPoints || null,
+    appName: activeConfig.appName || (process.platform === 'darwin' ? '微信' : 'Weixin'),
+    captureProtected: activeConfig.captureProtected === true,
+    dragPoints: activeConfig.dragPoints || null,
     stickerDir: join(agentDir, 'stickers'),
-    attachScreenshot: config.attachScreenshot !== false,
-    screenshotMaxWidth: Math.max(320, Math.min(1600, Number(config.screenshotMaxWidth ?? 1000))),
-    atKeywords: config.atKeywords || ['@豆包', '豆包'],
-    proactiveReplyProbability: config.proactiveReplyProbability ?? 0.12,
-    dailyProactiveLimit: config.dailyProactiveLimit ?? 1000,
-    replyDelayMinSeconds: config.replyDelayMinSeconds ?? 0.8,
-    replyDelayMaxSeconds: config.replyDelayMaxSeconds ?? 2.4,
-    maxMessageChars: config.maxMessageChars ?? 120,
-    maxMessagesPerCall: config.maxMessagesPerCall ?? 9,
-    reuseWindowMinutes: config.reuseWindowMinutes ?? 3,
-    archiveAfterMinutes: config.archiveAfterMinutes ?? 5,
-    replyCooldownSeconds: config.replyCooldownSeconds ?? 90,
-    dragCopyEnabled: config.dragCopyEnabled !== false,
-    ocrEnabled: config.ocrEnabled !== false,
-    scanEnabled: config.ocrEnabled !== false && config.scan?.enabled !== false,
-    scanIntervalMinutes: Math.max(1, Number(config.scan?.intervalMinutes ?? 5)),
-    triggerOnNotification: config.trigger?.onNotification !== false,
+    attachScreenshot: activeConfig.captureProtected !== true && activeConfig.attachScreenshot !== false,
+    screenshotMaxWidth: Math.max(320, Math.min(1600, Number(activeConfig.screenshotMaxWidth ?? 1000))),
+    atKeywords: activeConfig.atKeywords || ['@豆包', '豆包'],
+    proactiveReplyProbability: activeConfig.proactiveReplyProbability ?? 0.12,
+    dailyProactiveLimit: activeConfig.dailyProactiveLimit ?? 1000,
+    replyDelayMinSeconds: activeConfig.replyDelayMinSeconds ?? 0.8,
+    replyDelayMaxSeconds: activeConfig.replyDelayMaxSeconds ?? 2.4,
+    maxMessageChars: activeConfig.maxMessageChars ?? 120,
+    maxMessagesPerCall: activeConfig.maxMessagesPerCall ?? 9,
+    reuseWindowMinutes: activeConfig.reuseWindowMinutes ?? 3,
+    archiveAfterMinutes: activeConfig.archiveAfterMinutes ?? 5,
+    replyCooldownSeconds: activeConfig.replyCooldownSeconds ?? 90,
+    dragCopyEnabled: activeConfig.dragCopyEnabled !== false,
+    ocrEnabled: activeConfig.captureProtected !== true && activeConfig.ocrEnabled !== false,
+    scanEnabled: activeConfig.ocrEnabled !== false && activeConfig.scan?.enabled !== false
+      && (activeConfig.captureProtected !== true || process.platform === 'win32'),
+    scanIntervalMinutes: Math.max(1, Number(activeConfig.scan?.intervalMinutes ?? 5)),
+    triggerOnNotification: activeConfig.trigger?.onNotification !== false,
     // Hard ceiling on the injected prompt. Persona + duties + memory + messages
     // must fit, or the request is trimmed by section priority.
-    maxPromptChars: Math.min(100_000, Number(config.maxPromptChars ?? 100_000)),
-    workspaceTitle: config.workspaceTitle || 'dsh-wechatbot',
-    agentPreset: config.agentPreset || 'standard',
-    permissionPreset: config.permissionPreset || 'default',
+    maxPromptChars: Math.min(100_000, Number(activeConfig.maxPromptChars ?? 100_000)),
+    workspaceTitle: activeConfig.workspaceTitle || 'dsh-wechatbot',
+    agentPreset: activeConfig.agentPreset || 'wechatbot',
+    permissionPreset: activeConfig.permissionPreset || 'default',
   }
 
   // ------------------------------------------------------------ documents
@@ -305,6 +311,7 @@ export function apply(ctx, config = {}) {
     chat.client ??= createClient({
       appName: opts.appName,
       privateChat: chat.mode === 'private',
+      captureProtected: opts.captureProtected,
       dragPoints: opts.dragPoints,
       expectedGroup: chat.name,
       atKeywords: opts.atKeywords,
@@ -622,7 +629,7 @@ export function apply(ctx, config = {}) {
       // The model gets to look at the chat, not just read OCR of it. One capture
       // per wake is cheap compared with getting a sticker or a screenshot wrong.
       let shot = null
-      if (opts.attachScreenshot) {
+      if (opts.attachScreenshot && !opts.captureProtected) {
         try {
           shot = await withScreen(async () => {
             const c = await ensureClient(chat)
@@ -702,10 +709,23 @@ export function apply(ctx, config = {}) {
     return withScreen(async () => {
       let selected = mode
       try {
-        if (mode === 'auto') selected = opts.dragCopyEnabled && chat.mode === 'group'
-          ? (opts.ocrEnabled ? 'auto' : 'copy') : 'ocr'
+        if (mode === 'auto') {
+          if (process.platform === 'win32' && opts.captureProtected) {
+            selected = opts.dragCopyEnabled && chat.mode === 'group' ? 'auto' : 'uia'
+          } else {
+            selected = opts.dragCopyEnabled && chat.mode === 'group'
+              ? (opts.ocrEnabled ? 'auto' : 'copy') : 'ocr'
+          }
+        } else if (mode === 'ocr' && opts.captureProtected && process.platform === 'win32' && reason !== 'tool') {
+          selected = 'uia'
+        }
         if ((selected === 'ocr' && !opts.ocrEnabled) || (selected === 'copy' && !opts.dragCopyEnabled)) {
-          return { source: 'unavailable', group: chat.name, messages: [], copyIssue: '该消息来源已关闭' }
+          return {
+            source: 'unavailable',
+            group: chat.name,
+            messages: [],
+            copyIssue: opts.captureProtected && selected === 'ocr' ? '已开启防截屏模式，跳过截图 OCR' : '该消息来源已关闭',
+          }
         }
         const c = await ensureClient(chat)
         const read = selected === 'copy' && typeof c.readByCopy === 'function'
@@ -842,7 +862,12 @@ export function apply(ctx, config = {}) {
         if (action === 'start') return JSON.stringify({ ok: true, ...(await startDetector()) }, null, 2)
         if (action === 'stop') return JSON.stringify({ ok: true, ...(await stopDetector()) }, null, 2)
         if (action === 'scan') {
-          if (!opts.ocrEnabled) return JSON.stringify({ ok: false, error: '请先开启 OCR 读屏' })
+          if (opts.captureProtected && process.platform !== 'win32') {
+            return JSON.stringify({ ok: false, error: '已开启防截屏模式，不支持截图巡检' })
+          }
+          if (!opts.ocrEnabled && !(opts.captureProtected && process.platform === 'win32')) {
+            return JSON.stringify({ ok: false, error: '请先开启 OCR 读屏' })
+          }
           if (!detector) return JSON.stringify({ ok: false, error: '请先启动机器人' })
           const added = await detector.scan('manual-scan')
           runtime.lastScanAt = Date.now()
@@ -869,12 +894,15 @@ export function apply(ctx, config = {}) {
       const c = await ensureClient().catch(() => null)
       const connected = await c?.isRunning?.().catch(() => null) ?? null
       const readiness = connected ? await c.targetReadiness?.(targets).catch(() => ({})) ?? {} : {}
+      const windowCaptureProtected = connected ? await c?.hasCaptureProtectedWindow?.(targets).catch(() => false) ?? false : false
       const targetStatus = [...chats.values()].map(({ id, name, mode, pending }) => ({
         id, name, mode, ready: readiness[id] === true, pending: pending.length,
       }))
       return JSON.stringify({
         platform: process.platform,
         clientState: c?.state || 'ready',
+        captureProtected: opts.captureProtected,
+        windowCaptureProtected,
         agentDir,
         documents: Object.fromEntries(
           Object.entries(docs).map(([k, p]) => [k, existsSync(p)]),
@@ -890,6 +918,7 @@ export function apply(ctx, config = {}) {
         memory: memory.parse().entries.length,
         lastRead: runtime.lastRead,
         config: {
+          captureProtected: opts.captureProtected,
           dragPoints: opts.dragPoints,
           attachScreenshot: opts.attachScreenshot,
           screenshotMaxWidth: opts.screenshotMaxWidth,
@@ -898,7 +927,7 @@ export function apply(ctx, config = {}) {
           agentPreset: opts.agentPreset,
           archiveAfterMinutes: opts.archiveAfterMinutes,
         },
-        settings: Config(config),
+        settings: Config(activeConfig),
         defaults: Config({}),
         canEdit: Boolean(configEntry()),
         quota: { remaining: quota.remaining, limit: quota.dailyLimit },
@@ -1550,9 +1579,9 @@ export function apply(ctx, config = {}) {
       if (!Object.hasOwn(docs, key) || typeof contents !== 'string' || Buffer.byteLength(contents) > 512 * 1024
         || contents.includes('\0') || contents.includes('\uFFFD')) throw new Error('请选择 UTF-8 编码的 Markdown 文件（最大 512 KB）')
     }
-    let settings = Config(config)
+    let settings = Config(activeConfig)
     if (Object.keys(changes).length) await editor.edit(entry, (current) => {
-      const next = { ...current }
+      const next = { ...activeConfig, ...current }
       for (const [key, value] of Object.entries(changes)) {
         if (!Object.hasOwn(Config.dict, key)) throw new Error(`未知设置项 ${key}`)
         const fields = Config.dict[key].dict
@@ -1573,8 +1602,19 @@ export function apply(ctx, config = {}) {
       if (settings.replyDelayMinSeconds > settings.replyDelayMaxSeconds) {
         throw new Error('最短发送延迟不能超过最长发送延迟。')
       }
+      activeConfig = next
       return next
     })
+    if (Object.hasOwn(changes, 'captureProtected') || Object.hasOwn(changes, 'ocrEnabled') || Object.hasOwn(changes, 'attachScreenshot')) {
+      opts.captureProtected = activeConfig.captureProtected === true
+      opts.attachScreenshot = !opts.captureProtected && activeConfig.attachScreenshot !== false
+      opts.ocrEnabled = !opts.captureProtected && activeConfig.ocrEnabled !== false
+      opts.scanEnabled = activeConfig.ocrEnabled !== false && activeConfig.scan?.enabled !== false
+        && (!opts.captureProtected || process.platform === 'win32')
+      for (const holder of [overviewClient, ...chats.values()]) {
+        holder.client?.then?.((c) => { if (c) c.captureProtected = opts.captureProtected }).catch?.(() => {})
+      }
+    }
     for (const [key, contents] of Object.entries(documents)) writeLocalFile(docs[key], contents)
     if (Object.hasOwn(changes, 'workspaceTitle')) {
       const workspace = await trigger.registry?.resolveByPath?.(agentDir)
@@ -1747,6 +1787,7 @@ export function apply(ctx, config = {}) {
         }
         const args = await readPanelBody(req, path === '/settings' ? 10 * 1024 * 1024 : 64 * 1024)
         if (path === '/screenshot') {
+          if (opts.captureProtected) return send(409, { error: '已开启防截屏模式，当前已跳过窗口截图。' })
           const client = await ensureClient(chats.size ? panelChat(args.targetId) : overviewClient)
           if (typeof client.captureChatImage !== 'function') return send(501, { error: '当前平台不支持截图' })
           const shot = await withScreen(() => res.destroyed ? null : client.captureChatImage({ maxWidth: 720 }))
@@ -1792,12 +1833,12 @@ function writeLocalFile(path, content) {
 }
 
 function normalizePath(path) {
-  return String(path || '').replace(/\/+$/, '')
+  return String(path || '').replace(/[\\/]+$/, '')
 }
 
 function expandHome(path) {
   if (!path) return ''
-  return String(path).replace(/^~(?=$|\/)/, homedir())
+  return String(path).replace(/^~(?=$|[\\/])/, homedir())
 }
 
 /**

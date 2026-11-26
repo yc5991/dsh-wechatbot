@@ -58,10 +58,14 @@ test('sync preserves sticker identities and an in-flight AI label cannot replace
 test('a switch during a batch stops later sends and the quota covers both chats', { timeout: 6000 }, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-multi-chat-'))
   const previousHome = process.env.HOME
+  const previousProfile = process.env.USERPROFILE
   process.env.HOME = home
+  process.env.USERPROFILE = home
   t.after(() => {
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
+    if (previousProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousProfile
     rmSync(home, { force: true, recursive: true })
   })
   t.mock.property(process, 'platform', 'darwin')

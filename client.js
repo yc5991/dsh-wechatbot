@@ -147,7 +147,7 @@ window.__ModuleLoader__.load({
       'data-tone': opts.tone, 'aria-pressed': opts.pressed,
     }, text)
 
-    function Preview({ connected, targetId }) {
+    function Preview({ connected, targetId, captureProtected, windowCaptureProtected, canEdit, busy, onToggleCaptureProtected }) {
       const [shot, setShot] = useState(null)
       const [live, setLive] = useState(false)
       const [loading, setLoading] = useState(false)
@@ -156,7 +156,7 @@ window.__ModuleLoader__.load({
       const url = useRef(null)
 
       const capture = async () => {
-        if (controller.current || document.hidden || connected !== true) return false
+        if (controller.current || document.hidden || connected !== true || captureProtected) return false
         const active = new AbortController()
         controller.current = active
         setLoading(true)
@@ -180,6 +180,13 @@ window.__ModuleLoader__.load({
       }
 
       useEffect(() => {
+        if (!captureProtected) return
+        setLive(false)
+        setError('')
+        controller.current?.abort()
+      }, [captureProtected])
+
+      useEffect(() => {
         const hide = () => {
           if (!document.hidden) return
           setLive(false)
@@ -194,7 +201,7 @@ window.__ModuleLoader__.load({
       }, [])
 
       useEffect(() => {
-        if (!live || connected !== true) return
+        if (!live || connected !== true || captureProtected) return
         let active = true
         let timer
         const refresh = async () => {
@@ -209,20 +216,35 @@ window.__ModuleLoader__.load({
           window.clearTimeout(timer)
           controller.current?.abort()
         }
-      }, [live, connected])
+      }, [live, connected, captureProtected])
 
       const connection = connected === null ? t('状态未知', 'Status unknown')
         : connected ? t('已连接', 'Connected') : t('未连接', 'Disconnected')
       return h('section', { className: cls('card') },
         h('div', { className: cls('toolbar') }, title(t('微信窗口预览', 'WeChat window preview')),
-          h('span', { className: cls('status'), 'data-connection': String(connected) }, connection)),
+          actions(
+            h('label', { className: cls('switch') },
+              h('input', {
+                type: 'checkbox',
+                checked: Boolean(captureProtected),
+                disabled: busy || !canEdit,
+                onChange: (event) => onToggleCaptureProtected?.(event.target.checked),
+              }),
+              t('防截屏模式', 'Capture-protected mode')),
+            h('span', { className: cls('status'), 'data-connection': String(connected) }, connection))),
+        windowCaptureProtected && !captureProtected && h('p', { className: cls('error'), role: 'status' },
+          t('检测到微信窗口开启了系统防截屏保护，建议勾选上方「防截屏模式」以跳过截图与输入框 OCR 校验。',
+            'WeChat screen-capture protection detected. Enable Capture-protected mode above to bypass screenshot and OCR checks.')),
         h('div', { className: cls('frame'), 'aria-busy': loading },
-          shot ? h('img', { src: shot, alt: t('微信聊天窗口截图', 'WeChat chat window') })
-            : hint(loading ? t('正在截取…', 'Capturing…') : t('暂无预览', 'No preview'))),
+          captureProtected
+            ? hint(t('已开启防截屏模式：已跳过窗口截图、OCR 与输入框图像核对，使用独立窗口标题校验与无像素收发。',
+              'Capture-protected mode active: window screenshots, OCR, and composer image checks are bypassed.'))
+            : shot ? h('img', { src: shot, alt: t('微信聊天窗口截图', 'WeChat chat window') })
+              : hint(loading ? t('正在截取…', 'Capturing…') : t('暂无预览', 'No preview'))),
         actions(
-          button(t('截取一张', 'Capture once'), capture, { disabled: !connected || live || loading }),
+          button(t('截取一张', 'Capture once'), capture, { disabled: !connected || captureProtected || live || loading || busy }),
           button(live ? t('暂停实时预览', 'Pause live preview') : t('开启实时预览', 'Start live preview'),
-            () => setLive(!live), { disabled: !connected || (loading && !live), pressed: live, tone: 'primary' })),
+            () => setLive(!live), { disabled: !connected || captureProtected || busy || (loading && !live), pressed: live, tone: 'primary' })),
         error && h('p', { className: cls('error'), role: 'alert' }, error))
     }
 
@@ -381,7 +403,9 @@ window.__ModuleLoader__.load({
 
       const personaFields = group.id === 'persona' && h('div', { className: cls('stack') },
         h('button', { type: 'button', className: cls('workspace-link'), disabled: busy,
-          onClick: () => run('/workspace/open', {}), title: t('在 Finder 打开工作目录', 'Open the working directory in Finder') }, status.agentDir),
+          onClick: () => run('/workspace/open', {}),
+          title: t(status.platform === 'win32' ? '在资源管理器打开工作目录' : '在 Finder 打开工作目录',
+            status.platform === 'win32' ? 'Open the working directory in Explorer' : 'Open the working directory in Finder') }, status.agentDir),
         ...[['agent', 'AGENT.md'], ['persona', 'PERSONA.md'], ['memory', 'MEMORY.md']].map(([key, name]) =>
           h(PersonaFile, { key, fileKey: key, name, available: status.documents?.[key],
             draft: drafts['documents.' + key], canReplace: status.canEdit, busy,
@@ -654,7 +678,17 @@ window.__ModuleLoader__.load({
               h('time', { dateTime: new Date(row.at).toISOString() }, new Date(row.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))),
             row.thumbnail && h('img', { src: row.thumbnail, alt: row.content }),
             h('p', null, row.content)))),
-        h(Preview, { key: (target?.id ?? 'main') + ':' + status.connected, connected: status.connected, targetId: target?.id }),
+        h(Preview, {
+          key: (target?.id ?? 'main') + ':' + status.connected,
+          connected: status.connected,
+          targetId: target?.id,
+          captureProtected: Boolean(status.settings?.captureProtected ?? status.captureProtected),
+          windowCaptureProtected: status.windowCaptureProtected === true,
+          canEdit: status.canEdit,
+          busy,
+          onToggleCaptureProtected: (next) => run('/settings', { captureProtected: next },
+            next ? t('已开启防截屏模式', 'Capture-protected mode enabled') : t('已关闭防截屏模式', 'Capture-protected mode disabled')),
+        }),
         h(Targets, { status, selected: target?.id, select, run, busy }))
     }
 
@@ -745,7 +779,8 @@ window.__ModuleLoader__.load({
           actions(
             button(t('刷新状态', 'Refresh status'), () => { setError(''); refresh() }, { disabled: loading || busy }),
             running && button(t('立即巡检', 'Scan now'),
-              () => run('/detector', { action: 'scan' }, t('巡检完成', 'Scan complete')), { disabled: busy || status.settings.ocrEnabled === false }),
+              () => run('/detector', { action: 'scan' }, t('巡检完成', 'Scan complete')),
+              { disabled: busy || status.settings.ocrEnabled === false || (status.settings.captureProtected && status.platform !== 'win32') }),
             status && button(
               running ? t('停止', 'Stop') : t('启动', 'Start'),
               () => run('/detector', { action: running ? 'stop' : 'start' },

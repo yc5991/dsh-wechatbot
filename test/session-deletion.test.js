@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { SessionDeletion } from '../lib/session-deletion.js'
 
-test('offline deletion waits for the host and removes only the authorized session', { skip: process.platform !== 'darwin', timeout: 25_000 }, async (t) => {
+test('offline deletion waits for the host and removes only the authorized session', {
+  skip: process.platform !== 'darwin' && process.platform !== 'win32',
+  timeout: 30_000,
+}, async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-deletion-test-'))
   t.after(() => rmSync(home, { force: true, recursive: true }))
   const root = join(home, '.dsh')
@@ -32,20 +34,19 @@ test('offline deletion waits for the host and removes only the authorized sessio
   const deletion = new SessionDeletion({ home, trigger: {}, ctx: {} })
   assert.equal(deletion.logBucket({ kind: 'jsonl', path: log }, id), bucket)
 
-  const worker = join(home, 'delete-worker')
-  execFileSync('/usr/bin/swiftc', ['-O', fileURLToPath(new URL('../lib/session-deletion.swift', import.meta.url)), '-o', worker])
-  const host = spawn('/bin/sleep', ['60'])
+  const worker = await deletion.worker()
+  const host = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { windowsHide: true })
   const stopped = once(host, 'exit')
-  const purge = spawn(worker, [root, id, String(host.pid)])
+  const purge = spawn(worker, [root, id, String(host.pid)], { windowsHide: true })
   const completed = once(purge, 'exit')
   t.after(() => { if (host.exitCode === null) host.kill(); if (purge.exitCode === null) purge.kill() })
-  await sleep(150)
+  await sleep(250)
   assert.equal(existsSync(log), true)
   assert.equal(existsSync(cache), true)
   host.kill()
   await stopped
   assert.equal((await completed)[0], 0)
-  assert.equal(JSON.parse(readFileSync(job)).stage, 'purged')
+  assert.equal(JSON.parse(readFileSync(job, 'utf8')).stage, 'purged')
   assert.equal(existsSync(folder), false)
   assert.equal(existsSync(cache), false)
   assert.equal(existsSync(untouched), true)
@@ -61,9 +62,10 @@ test('offline deletion waits for the host and removes only the authorized sessio
   }
   const verifier = new SessionDeletion({ home, trigger, ctx: { get: () => ({ stat: async () => undefined }) } })
   await verifier.visitJobs()
-  assert.equal(JSON.parse(readFileSync(job)).stage, 'purged')
+  assert.equal(JSON.parse(readFileSync(job, 'utf8')).stage, 'purged')
   foundBySearch = false
   await verifier.visitJobs()
-  assert.equal(JSON.parse(readFileSync(job)).stage, 'verified')
   assert.equal(archived, false)
+  assert.equal(existsSync(job), false)
+  assert.deepEqual(verifier.list(), [])
 })

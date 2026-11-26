@@ -1,8 +1,8 @@
 {
   "name": "dsh-wechatbot",
-  "version": "0.3.0-preview.7",
+  "version": "0.4.0",
   "private": true,
-  "description": "A vision-based WeChat bot for macOS that supports group and private chats.",
+  "description": "Zero-injection WeChat bot bridge for DSH on macOS and Windows, supporting group and private chats.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -32,6 +32,8 @@
     "wechat",
     "wechat-bot",
     "macos",
+    "windows",
+    "uia",
     "ocr"
   ],
   "dsh": {
